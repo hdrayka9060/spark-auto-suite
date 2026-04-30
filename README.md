@@ -1,3 +1,3 @@
-# Welcome to your Spark Auto Suite
+# Welcome to Spark Auto Suite
 
 TODO: Document your project here
