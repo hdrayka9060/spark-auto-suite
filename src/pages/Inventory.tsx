@@ -1,16 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Plus, Upload, Search, Filter, Eye, Edit, Trash2, Image } from "lucide-react";
-
-const vehicles = [
-  { id: "V-001", title: "2024 BMW X5 xDrive40i", company: "BMW", model: "X5", year: 2024, km: 1200, price: 65000, discount: 0, owners: 0, status: "Unsold", hosting: "Self", image: "🚙" },
-  { id: "V-002", title: "2023 Mercedes-Benz C300", company: "Mercedes", model: "C300", year: 2023, km: 15400, price: 42500, discount: 2000, owners: 1, status: "Sold", hosting: "Platform", image: "🚗" },
-  { id: "V-003", title: "2024 Tesla Model 3 LR", company: "Tesla", model: "Model 3", year: 2024, km: 800, price: 48900, discount: 0, owners: 0, status: "Unsold", hosting: "Self", image: "⚡" },
-  { id: "V-004", title: "2022 Ford F-150 Lariat", company: "Ford", model: "F-150", year: 2022, km: 32100, price: 52000, discount: 3000, owners: 1, status: "Pending", hosting: "Platform", image: "🛻" },
-  { id: "V-005", title: "2023 Audi Q7 Premium", company: "Audi", model: "Q7", year: 2023, km: 12300, price: 58500, discount: 1500, owners: 1, status: "Unsold", hosting: "Self", image: "🚙" },
-  { id: "V-006", title: "2024 Chevrolet Tahoe LT", company: "Chevrolet", model: "Tahoe", year: 2024, km: 5600, price: 61000, discount: 0, owners: 0, status: "Sold", hosting: "Platform", image: "🚙" },
-  { id: "V-007", title: "2023 Toyota Camry SE", company: "Toyota", model: "Camry", year: 2023, km: 18900, price: 28500, discount: 500, owners: 1, status: "Unsold", hosting: "Self", image: "🚗" },
-  { id: "V-008", title: "2022 Honda Accord Sport", company: "Honda", model: "Accord", year: 2022, km: 27400, price: 31200, discount: 1000, owners: 2, status: "Pending", hosting: "Self", image: "🚗" },
-];
+import { vehicles } from "@/data/vehicles";
 
 const statusClass: Record<string, string> = {
   Sold: "sold",
@@ -19,9 +10,21 @@ const statusClass: Record<string, string> = {
 };
 
 export default function Inventory() {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const navigate = useNavigate();
+  const location = useLocation();
+  const savedState = (location.state as { search?: string; statusFilter?: string } | null) ?? null;
+  const [search, setSearch] = useState(savedState?.search ?? "");
+  const [statusFilter, setStatusFilter] = useState(savedState?.statusFilter ?? "All");
   const [showAdd, setShowAdd] = useState(false);
+
+  // Persist filters into history state so they survive back-navigation
+  useEffect(() => {
+    window.history.replaceState({ ...(window.history.state || {}), usr: { search, statusFilter } }, "");
+  }, [search, statusFilter]);
+
+  const openVehicle = (id: string) => {
+    navigate(`/inventory/${id}`, { state: { search, statusFilter } });
+  };
 
   const filtered = vehicles.filter(
     (v) =>
@@ -125,7 +128,7 @@ export default function Inventory() {
           </thead>
           <tbody>
             {filtered.map((v) => (
-              <tr key={v.id}>
+              <tr key={v.id} onClick={() => openVehicle(v.id)} className="cursor-pointer">
                 <td className="font-mono text-xs">{v.id}</td>
                 <td className="text-2xl">{v.image}</td>
                 <td className="font-medium">{v.title}</td>
@@ -135,9 +138,9 @@ export default function Inventory() {
                 <td>{v.owners}</td>
                 <td><span className={`status-badge ${statusClass[v.status]}`}>{v.status}</span></td>
                 <td className="text-xs text-muted-foreground">{v.hosting}</td>
-                <td>
+                <td onClick={(e) => e.stopPropagation()}>
                   <div className="flex gap-1">
-                    <button className="p-1.5 rounded hover:bg-muted"><Eye className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => openVehicle(v.id)} className="p-1.5 rounded hover:bg-muted"><Eye className="h-3.5 w-3.5" /></button>
                     <button className="p-1.5 rounded hover:bg-muted"><Edit className="h-3.5 w-3.5" /></button>
                     <button className="p-1.5 rounded hover:bg-red-50 text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
