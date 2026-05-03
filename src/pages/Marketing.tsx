@@ -1,5 +1,7 @@
-import { TrendingUp, Users, Target, DollarSign, BarChart3, Eye } from "lucide-react";
+import { TrendingUp, Users, Target, DollarSign, BarChart3, ChevronRight } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
+import { useNavigate } from "react-router-dom";
+import { campaigns } from "@/data/campaigns";
 
 const stats = [
   { label: "Total Leads", value: "1,240", change: "+18%", icon: Users, color: "bg-primary/10 text-primary" },
@@ -15,16 +17,11 @@ const campaignData = [
   { name: "Week 4", google: 168, meta: 115 },
 ];
 
-const campaigns = [
-  { name: "Spring Sale – SUVs", platform: "Google Ads", spend: 8500, leads: 342, conversions: 14, cpl: 24.85, status: "Active" },
-  { name: "Truck Month Promo", platform: "Meta Ads", spend: 6200, leads: 218, conversions: 9, cpl: 28.44, status: "Active" },
-  { name: "EV Awareness", platform: "Google Ads", spend: 4800, leads: 156, conversions: 7, cpl: 30.77, status: "Paused" },
-  { name: "Year-End Clearance", platform: "Meta Ads", spend: 10200, leads: 524, conversions: 22, cpl: 19.47, status: "Completed" },
-];
-
 const statusColors: Record<string, string> = { Active: "bg-emerald-100 text-emerald-700", Paused: "bg-amber-100 text-amber-700", Completed: "bg-blue-100 text-blue-700" };
 
 export default function Marketing() {
+  const navigate = useNavigate();
+
   return (
     <div className="animate-fade-in space-y-6">
       <div className="module-header">
@@ -74,20 +71,21 @@ export default function Marketing() {
         </div>
       </div>
 
-      <div className="stat-card">
+      <div className="stat-card overflow-x-auto">
         <h3 className="font-display font-semibold mb-4">Campaigns</h3>
         <table className="data-table">
-          <thead><tr><th>Campaign</th><th>Platform</th><th>Spend</th><th>Leads</th><th>Conversions</th><th>CPL</th><th>Status</th></tr></thead>
+          <thead><tr><th>Campaign</th><th>Platform</th><th>Impressions</th><th>Clicks</th><th>Leads</th><th>CPL</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {campaigns.map((c, i) => (
-              <tr key={i}>
+            {campaigns.map((c) => (
+              <tr key={c.id} onClick={() => navigate(`/marketing/${c.id}`)} className="cursor-pointer">
                 <td className="font-medium text-sm">{c.name}</td>
                 <td className="text-sm">{c.platform}</td>
-                <td className="text-sm">${c.spend.toLocaleString()}</td>
+                <td className="text-sm">{c.impressions.toLocaleString()}</td>
+                <td className="text-sm">{c.clicks.toLocaleString()}</td>
                 <td className="text-sm">{c.leads}</td>
-                <td className="text-sm">{c.conversions}</td>
                 <td className="text-sm">${c.cpl.toFixed(2)}</td>
                 <td><span className={`status-badge ${statusColors[c.status]}`}>{c.status}</span></td>
+                <td><ChevronRight className="h-4 w-4 text-muted-foreground" /></td>
               </tr>
             ))}
           </tbody>

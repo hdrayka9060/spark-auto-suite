@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Car, Users, UserCheck, DollarSign, CreditCard,
   Megaphone, Globe, CalendarDays, HeadphonesIcon, Settings, MessageSquare,
-  ChevronLeft, ChevronRight, Bell, Search, User
+  ChevronLeft, ChevronRight, Bell, Search, User, Target, Store, Shield, UserCog
 } from "lucide-react";
 
 const navItems = [
@@ -11,13 +11,17 @@ const navItems = [
   { label: "Inventory", icon: Car, path: "/inventory" },
   { label: "CRM – Sellers", icon: Users, path: "/crm-sellers" },
   { label: "CRM – Buyers", icon: UserCheck, path: "/crm-buyers" },
+  { label: "Leads & Sales", icon: Target, path: "/leads" },
   { label: "Accounting", icon: DollarSign, path: "/accounting" },
   { label: "BHPH", icon: CreditCard, path: "/bhph" },
   { label: "Digital Marketing", icon: Megaphone, path: "/marketing" },
   { label: "Dealer Website", icon: Globe, path: "/dealer-website" },
+  { label: "Marketplace", icon: Store, path: "/marketplace" },
   { label: "Calendar", icon: CalendarDays, path: "/calendar" },
   { label: "Communication", icon: MessageSquare, path: "/communication" },
   { label: "Support", icon: HeadphonesIcon, path: "/support" },
+  { label: "Staff", icon: UserCog, path: "/staff" },
+  { label: "Roles", icon: Shield, path: "/roles" },
   { label: "Settings", icon: Settings, path: "/settings" },
 ];
 
@@ -39,7 +43,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
           {navItems.map((item) => {
-            const active = location.pathname === item.path;
+            const active =
+              item.path === "/"
+                ? location.pathname === "/"
+                : location.pathname.startsWith(item.path);
             return (
               <Link
                 key={item.path}
