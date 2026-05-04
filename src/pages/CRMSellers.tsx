@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, ChevronRight } from "lucide-react";
+import { Search, ChevronRight, LayoutGrid, List, MapPin, Car, Sparkles, Mail, Phone } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { sellers } from "@/data/sellers";
 
@@ -14,19 +14,20 @@ const statusColors: Record<string, string> = {
 export default function CRMSellers() {
   const navigate = useNavigate();
   const location = useLocation();
-  const saved = (location.state as { search?: string; statusFilter?: string } | null) ?? null;
+  const saved = (location.state as { search?: string; statusFilter?: string; view?: "grid" | "list" } | null) ?? null;
   const [statusFilter, setStatusFilter] = useState(saved?.statusFilter ?? "All");
   const [search, setSearch] = useState(saved?.search ?? "");
+  const [view, setView] = useState<"grid" | "list">(saved?.view ?? "grid");
 
   useEffect(() => {
-    window.history.replaceState({ ...(window.history.state || {}), usr: { search, statusFilter } }, "");
-  }, [search, statusFilter]);
+    window.history.replaceState({ ...(window.history.state || {}), usr: { search, statusFilter, view } }, "");
+  }, [search, statusFilter, view]);
 
   const filtered = sellers.filter(
     (s) => (statusFilter === "All" || s.status === statusFilter) && s.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  const open = (id: string) => navigate(`/crm-sellers/${id}`, { state: { search, statusFilter } });
+  const open = (id: string) => navigate(`/crm-sellers/${id}`, { state: { search, statusFilter, view } });
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -51,11 +52,63 @@ export default function CRMSellers() {
         ))}
       </div>
 
-      <div className="flex items-center gap-2 bg-card border rounded-lg px-3 py-2 max-w-sm">
-        <Search className="h-4 w-4 text-muted-foreground" />
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sellers..." className="bg-transparent text-sm outline-none w-full" />
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 bg-card border rounded-lg px-3 py-2 flex-1 max-w-sm">
+          <Search className="h-4 w-4 text-muted-foreground" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sellers..." className="bg-transparent text-sm outline-none w-full" />
+        </div>
+        <div className="ml-auto flex items-center gap-1 bg-card border rounded-lg p-1">
+          <button onClick={() => setView("grid")} className={`p-1.5 rounded ${view === "grid" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}><LayoutGrid className="h-4 w-4" /></button>
+          <button onClick={() => setView("list")} className={`p-1.5 rounded ${view === "list" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}><List className="h-4 w-4" /></button>
+        </div>
       </div>
 
+      {view === "grid" && (
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+          {filtered.map((s) => {
+            const initials = s.name.split(" ").map((n) => n[0]).join("").slice(0, 2);
+            return (
+              <div key={s.id} onClick={() => open(s.id)}
+                className="group bg-card border rounded-xl p-5 cursor-pointer shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all">
+                <div className="flex items-start gap-3">
+                  <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary to-primary/70 text-primary-foreground flex items-center justify-center font-semibold">
+                    {initials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="font-display font-semibold truncate group-hover:text-primary transition-colors">{s.name}</h3>
+                      <span className={`status-badge ${statusColors[s.status]}`}>{s.status === "VIP" && <Sparkles className="h-3 w-3 mr-0.5" />}{s.status}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3" />{s.location}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs mt-4">
+                  <div className="flex items-center gap-1.5 text-muted-foreground"><Mail className="h-3 w-3" /><span className="truncate">{s.email}</span></div>
+                  <div className="flex items-center gap-1.5 text-muted-foreground"><Phone className="h-3 w-3" />{s.phone}</div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t">
+                  <div>
+                    <p className="text-lg font-bold font-display flex items-center gap-1"><Car className="h-4 w-4 text-primary" />{s.vehiclesListed.length}</p>
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide">Listed</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold font-display">{s.activeLeads}</p>
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide">Leads</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-bold font-display">{s.traffic}</p>
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide">Visits</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {view === "list" && (
       <div className="stat-card overflow-x-auto">
         <table className="data-table">
           <thead>
@@ -88,6 +141,7 @@ export default function CRMSellers() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
