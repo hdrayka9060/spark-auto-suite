@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, ChevronRight, Filter } from "lucide-react";
+import { Search, ChevronRight, Filter, LayoutGrid, List, KanbanSquare, User, Car } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { leads } from "@/data/leads";
 
@@ -24,13 +24,14 @@ const sourceColors: Record<string, string> = {
 export default function Leads() {
   const navigate = useNavigate();
   const location = useLocation();
-  const saved = (location.state as { search?: string; statusFilter?: string } | null) ?? null;
+  const saved = (location.state as { search?: string; statusFilter?: string; view?: "kanban" | "list" } | null) ?? null;
   const [search, setSearch] = useState(saved?.search ?? "");
   const [statusFilter, setStatusFilter] = useState(saved?.statusFilter ?? "All");
+  const [view, setView] = useState<"kanban" | "list">(saved?.view ?? "kanban");
 
   useEffect(() => {
-    window.history.replaceState({ ...(window.history.state || {}), usr: { search, statusFilter } }, "");
-  }, [search, statusFilter]);
+    window.history.replaceState({ ...(window.history.state || {}), usr: { search, statusFilter, view } }, "");
+  }, [search, statusFilter, view]);
 
   const filtered = leads.filter(
     (l) =>
@@ -38,7 +39,9 @@ export default function Leads() {
       (l.buyerName.toLowerCase().includes(search.toLowerCase()) || l.vehicleTitle.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const open = (id: string) => navigate(`/leads/${id}`, { state: { search, statusFilter } });
+  const open = (id: string) => navigate(`/leads/${id}`, { state: { search, statusFilter, view } });
+
+  const pipelineStages = ["New", "Contacted", "Test Drive", "Negotiation", "Closed"] as const;
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -63,8 +66,52 @@ export default function Leads() {
             </button>
           ))}
         </div>
+        <div className="ml-auto flex items-center gap-1 bg-card border rounded-lg p-1">
+          <button onClick={() => setView("kanban")} className={`p-1.5 rounded ${view === "kanban" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} title="Pipeline"><KanbanSquare className="h-4 w-4" /></button>
+          <button onClick={() => setView("list")} className={`p-1.5 rounded ${view === "list" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`} title="List"><List className="h-4 w-4" /></button>
+        </div>
       </div>
 
+      {view === "kanban" && (
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-5">
+          {pipelineStages.map((stage) => {
+            const items = filtered.filter((l) => l.status === stage);
+            return (
+              <div key={stage} className="bg-muted/40 border rounded-xl p-3 flex flex-col min-h-[200px]">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2 w-2 rounded-full ${statusColors[stage].split(" ")[0].replace("bg-", "bg-")}`} />
+                    <h3 className="font-display font-semibold text-sm">{stage}</h3>
+                  </div>
+                  <span className="text-xs text-muted-foreground bg-card border rounded-full px-2 py-0.5">{items.length}</span>
+                </div>
+                <div className="space-y-2 flex-1">
+                  {items.map((l) => (
+                    <div key={l.id} onClick={() => open(l.id)}
+                      className="bg-card border rounded-lg p-3 cursor-pointer hover:shadow-md hover:border-primary/40 transition-all">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="font-mono text-[10px] text-muted-foreground">{l.id}</span>
+                        <span className={`status-badge ${sourceColors[l.source]}`}>{l.source}</span>
+                      </div>
+                      <p className="font-medium text-sm flex items-center gap-1.5"><User className="h-3 w-3 text-muted-foreground" />{l.buyerName}</p>
+                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5"><Car className="h-3 w-3" />{l.vehicleTitle}</p>
+                      <div className="mt-3 pt-2 border-t flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span>{l.assignedTo}</span>
+                        <span>{l.createdAt.slice(5)}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {items.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-6">No leads</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {view === "list" && (
       <div className="stat-card overflow-x-auto">
         <table className="data-table">
           <thead>
@@ -95,6 +142,7 @@ export default function Leads() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
