@@ -11,6 +11,7 @@ const navItems = [
   { label: "Inventory", icon: Car, path: "/inventory" },
   { label: "CRM – Sellers", icon: Users, path: "/crm-sellers" },
   { label: "CRM – Buyers", icon: UserCheck, path: "/crm-buyers" },
+  { label: "CRM – Vehicles", icon: Car, path: "/crm-vehicles" },
   { label: "Leads & Sales", icon: Target, path: "/leads" },
   { label: "Accounting", icon: DollarSign, path: "/accounting" },
   { label: "BHPH", icon: CreditCard, path: "/bhph" },
