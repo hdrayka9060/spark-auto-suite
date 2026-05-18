@@ -11,6 +11,7 @@ import CRMSellers from "./pages/CRMSellers";
 import SellerDetail from "./pages/SellerDetail";
 import CRMBuyers from "./pages/CRMBuyers";
 import BuyerDetail from "./pages/BuyerDetail";
+import CRMVehicles from "./pages/CRMVehicles";
 import Leads from "./pages/Leads";
 import LeadDetail from "./pages/LeadDetail";
 import Accounting from "./pages/Accounting";
@@ -46,6 +47,7 @@ const App = () => (
           <Route path="/crm-sellers/:id" element={<AppLayout><SellerDetail /></AppLayout>} />
           <Route path="/crm-buyers" element={<AppLayout><CRMBuyers /></AppLayout>} />
           <Route path="/crm-buyers/:id" element={<AppLayout><BuyerDetail /></AppLayout>} />
+          <Route path="/crm-vehicles" element={<AppLayout><CRMVehicles /></AppLayout>} />
           <Route path="/leads" element={<AppLayout><Leads /></AppLayout>} />
           <Route path="/leads/:id" element={<AppLayout><LeadDetail /></AppLayout>} />
           <Route path="/accounting" element={<AppLayout><Accounting /></AppLayout>} />
