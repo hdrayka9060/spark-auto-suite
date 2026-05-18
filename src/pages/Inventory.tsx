@@ -10,6 +10,9 @@ const statusClass: Record<string, string> = {
   Unsold: "unsold",
 };
 
+const toTitle = (s: string) =>
+  s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
 export default function Inventory() {
   const navigate = useNavigate();
   const location = useLocation();
