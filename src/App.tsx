@@ -4,6 +4,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import AppLayout from "./components/AppLayout";
+import ProtectedRoute from "./components/ProtectedRoute";
+import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
 import VehicleDetail from "./pages/VehicleDetail";
@@ -29,6 +31,12 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+const Protected = ({ children }: { children: React.ReactNode }) => (
+  <ProtectedRoute>
+    <AppLayout>{children}</AppLayout>
+  </ProtectedRoute>
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -36,30 +44,28 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route element={<AppLayout><></></AppLayout>}>
-            {/* Wrapped routes won't work this way, use layout pattern */}
-          </Route>
-          <Route path="/" element={<AppLayout><Dashboard /></AppLayout>} />
-          <Route path="/inventory" element={<AppLayout><Inventory /></AppLayout>} />
-          <Route path="/inventory/:id" element={<AppLayout><VehicleDetail /></AppLayout>} />
-          <Route path="/crm-sellers" element={<AppLayout><CRMSellers /></AppLayout>} />
-          <Route path="/crm-sellers/:id" element={<AppLayout><SellerDetail /></AppLayout>} />
-          <Route path="/crm-buyers" element={<AppLayout><CRMBuyers /></AppLayout>} />
-          <Route path="/crm-buyers/:id" element={<AppLayout><BuyerDetail /></AppLayout>} />
-          <Route path="/leads" element={<AppLayout><Leads /></AppLayout>} />
-          <Route path="/leads/:id" element={<AppLayout><LeadDetail /></AppLayout>} />
-          <Route path="/accounting" element={<AppLayout><Accounting /></AppLayout>} />
-          <Route path="/bhph" element={<AppLayout><BHPH /></AppLayout>} />
-          <Route path="/marketing" element={<AppLayout><Marketing /></AppLayout>} />
-          <Route path="/marketing/:id" element={<AppLayout><CampaignDetail /></AppLayout>} />
-          <Route path="/dealer-website" element={<AppLayout><DealerWebsite /></AppLayout>} />
-          <Route path="/marketplace" element={<AppLayout><DealerMarketplace /></AppLayout>} />
-          <Route path="/calendar" element={<AppLayout><CalendarPage /></AppLayout>} />
-          <Route path="/communication" element={<AppLayout><Communication /></AppLayout>} />
-          <Route path="/support" element={<AppLayout><Support /></AppLayout>} />
-          <Route path="/staff" element={<AppLayout><StaffManagement /></AppLayout>} />
-          <Route path="/roles" element={<AppLayout><RolesPermissions /></AppLayout>} />
-          <Route path="/settings" element={<AppLayout><Settings /></AppLayout>} />
+          <Route path="/auth" element={<Auth />} />
+          <Route path="/" element={<Protected><Dashboard /></Protected>} />
+          <Route path="/inventory" element={<Protected><Inventory /></Protected>} />
+          <Route path="/inventory/:id" element={<Protected><VehicleDetail /></Protected>} />
+          <Route path="/crm-sellers" element={<Protected><CRMSellers /></Protected>} />
+          <Route path="/crm-sellers/:id" element={<Protected><SellerDetail /></Protected>} />
+          <Route path="/crm-buyers" element={<Protected><CRMBuyers /></Protected>} />
+          <Route path="/crm-buyers/:id" element={<Protected><BuyerDetail /></Protected>} />
+          <Route path="/leads" element={<Protected><Leads /></Protected>} />
+          <Route path="/leads/:id" element={<Protected><LeadDetail /></Protected>} />
+          <Route path="/accounting" element={<Protected><Accounting /></Protected>} />
+          <Route path="/bhph" element={<Protected><BHPH /></Protected>} />
+          <Route path="/marketing" element={<Protected><Marketing /></Protected>} />
+          <Route path="/marketing/:id" element={<Protected><CampaignDetail /></Protected>} />
+          <Route path="/dealer-website" element={<Protected><DealerWebsite /></Protected>} />
+          <Route path="/marketplace" element={<Protected><DealerMarketplace /></Protected>} />
+          <Route path="/calendar" element={<Protected><CalendarPage /></Protected>} />
+          <Route path="/communication" element={<Protected><Communication /></Protected>} />
+          <Route path="/support" element={<Protected><Support /></Protected>} />
+          <Route path="/staff" element={<Protected><StaffManagement /></Protected>} />
+          <Route path="/roles" element={<Protected><Shield /></Protected>} />
+          <Route path="/settings" element={<Protected><Settings /></Protected>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
