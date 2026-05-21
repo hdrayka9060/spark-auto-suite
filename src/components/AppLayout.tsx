@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import {
   LayoutDashboard, Car, Users, UserCheck, DollarSign, CreditCard,
   Megaphone, Globe, CalendarDays, HeadphonesIcon, Settings, MessageSquare,
-  ChevronLeft, ChevronRight, Bell, Search, User, Target, Store, Shield, UserCog
+  ChevronLeft, ChevronRight, Bell, Search, User, Target, Store, Shield, UserCog, LogOut
 } from "lucide-react";
 
 const navItems = [
@@ -28,6 +29,17 @@ const navItems = [
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const [email, setEmail] = useState<string>("");
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? ""));
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/auth", { replace: true });
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -95,9 +107,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <User className="h-4 w-4 text-primary-foreground" />
               </div>
               <div className="text-sm">
-                <p className="font-medium leading-none">John Dealer</p>
+                <p className="font-medium leading-none">{email || "Dealer"}</p>
                 <p className="text-muted-foreground text-xs">Admin</p>
               </div>
+              <button
+                onClick={handleLogout}
+                className="ml-2 p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+                title="Sign out"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
             </div>
           </div>
         </header>
