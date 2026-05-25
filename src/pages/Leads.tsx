@@ -71,6 +71,19 @@ export default function Leads() {
       toast({ title: "Missing info", description: "Pick a buyer and a vehicle.", variant: "destructive" });
       return;
     }
+
+    const existingLead = leads.find(
+      (l) => l.buyerId === form.buyerId && l.vehicleId === form.vehicleId && l.status !== "Archived"
+    );
+    if (existingLead) {
+      toast({
+        title: "Lead already exists",
+        description: `${existingLead.buyerName} already has an active lead for ${existingLead.vehicleTitle}. Archive the existing lead to create a new one.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const lead = await createLead.mutateAsync({
         buyerId: form.buyerId,
@@ -85,7 +98,8 @@ export default function Leads() {
       setShowAdd(false);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Could not create lead";
-      toast({ title: "Save failed", description: msg, variant: "destructive" });
+      const title = msg.includes("already exists") ? "Duplicate lead" : "Save failed";
+      toast({ title, description: msg, variant: "destructive" });
     }
   };
 
