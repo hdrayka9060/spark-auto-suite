@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/auth-context";
 import {
   LayoutDashboard, Car, Users, UserCheck, DollarSign, CreditCard,
   Megaphone, Globe, CalendarDays, HeadphonesIcon, Settings, MessageSquare,
   ChevronLeft, ChevronRight, Bell, Search, User, Target, Store, Shield, UserCog, LogOut
 } from "lucide-react";
+
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/" },
@@ -30,14 +31,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const [email, setEmail] = useState<string>("");
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? ""));
-  }, []);
+  const { state, logout } = useAuth();
+  const user = state.status === "authenticated" ? state.user : null;
+  const displayName = user
+    ? `${user.firstName} ${user.lastName}`.trim() || user.email
+    : "Dealer";
+  const roleLabel = user?.roleId?.name ?? "";
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await logout();
     navigate("/auth", { replace: true });
   };
 
@@ -53,7 +55,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {!collapsed && <span className="font-display font-bold text-lg text-white tracking-tight">AutoDealer</span>}
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+        <nav
+          className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        >
           {navItems.map((item) => {
             const active =
               item.path === "/"
@@ -107,8 +111,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <User className="h-4 w-4 text-primary-foreground" />
               </div>
               <div className="text-sm">
-                <p className="font-medium leading-none">{email || "Dealer"}</p>
-                <p className="text-muted-foreground text-xs">Admin</p>
+                <p className="font-medium leading-none">{displayName}</p>
+                <p className="text-muted-foreground text-xs">{roleLabel || "Dealer"}</p>
               </div>
               <button
                 onClick={handleLogout}

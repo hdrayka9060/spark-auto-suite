@@ -1,37 +1,110 @@
-import { useState } from "react";
-import { Mail, Phone, MessageCircle, PhoneCall, Search, Car, User } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Mail, Phone, MessageCircle, PhoneCall, Search, Car, User, Plus, X, Loader2, AlertCircle, Send } from "lucide-react";
+import { useCommunicationLogs, useSendCommunication } from "@/hooks/api/use-communication";
+import { useVehicles } from "@/hooks/api/use-vehicles";
+import { ApiError } from "@/lib/api";
+import { ClientCommChannel, Conversation } from "@/lib/communication-mapper";
+import { toast } from "@/hooks/use-toast";
 
-type Channel = "All" | "Email" | "SMS" | "WhatsApp" | "Call";
+const ALL_CHANNELS: ClientCommChannel[] = ["Email", "SMS", "WhatsApp", "Call"];
 
-const conversations = [
-  { id: 1, customer: "Sarah Mitchell", channel: "WhatsApp" as Channel, vehicle: "Tesla Model 3", lastMsg: "Sure, I can come in at 10 AM for the test drive.", time: "2 min ago", unread: true },
-  { id: 2, customer: "Michael Brown", channel: "Email" as Channel, vehicle: "Mercedes C300", lastMsg: "RE: Title transfer documents — Please see attached...", time: "30 min ago", unread: false },
-  { id: 3, customer: "Robert Chen", channel: "Call" as Channel, vehicle: "Audi A4", lastMsg: "Call duration: 4 min 32s", time: "1 hr ago", unread: false },
-  { id: 4, customer: "Chris Johnson", channel: "SMS" as Channel, vehicle: "Ford F-150", lastMsg: "Is the truck still available?", time: "2 hrs ago", unread: true },
-  { id: 5, customer: "Tony Ramirez", channel: "Email" as Channel, vehicle: "Nissan Altima", lastMsg: "RE: Payment schedule — Thank you for the updated EMI plan.", time: "3 hrs ago", unread: false },
-  { id: 6, customer: "Lisa Park", channel: "WhatsApp" as Channel, vehicle: "Toyota RAV4", lastMsg: "Can you send me more photos of the car?", time: "5 hrs ago", unread: true },
-];
+const channelIcons: Record<ClientCommChannel, typeof Mail> = {
+  Email: Mail,
+  SMS: Phone,
+  WhatsApp: MessageCircle,
+  Call: PhoneCall,
+};
+const channelColors: Record<ClientCommChannel, string> = {
+  Email: "bg-blue-100 text-blue-700",
+  SMS: "bg-violet-100 text-violet-700",
+  WhatsApp: "bg-emerald-100 text-emerald-700",
+  Call: "bg-amber-100 text-amber-700",
+};
 
-const channelIcons: Record<string, typeof Mail> = { Email: Mail, SMS: Phone, WhatsApp: MessageCircle, Call: PhoneCall };
-const channelColors: Record<string, string> = { Email: "bg-blue-100 text-blue-700", SMS: "bg-violet-100 text-violet-700", WhatsApp: "bg-emerald-100 text-emerald-700", Call: "bg-amber-100 text-amber-700" };
-
-const chatMessages = [
-  { from: "Sarah Mitchell", role: "customer", text: "Hi! I saw the Tesla Model 3 listing. Is it still available?", time: "9:30 AM" },
-  { from: "You", role: "agent", text: "Hi Sarah! Yes, the 2024 Tesla Model 3 Long Range is available. Would you like to schedule a test drive?", time: "9:35 AM" },
-  { from: "Sarah Mitchell", role: "customer", text: "That would be great! What times are available this week?", time: "9:40 AM" },
-  { from: "You", role: "agent", text: "We have slots available on Monday at 10 AM and Wednesday at 2 PM. Which works better for you?", time: "9:45 AM" },
-  { from: "Sarah Mitchell", role: "customer", text: "Sure, I can come in at 10 AM for the test drive.", time: "9:50 AM" },
-];
+type FilterChannel = "All" | ClientCommChannel;
 
 export default function Communication() {
-  const [channel, setChannel] = useState<Channel>("All");
-  const [selected, setSelected] = useState(1);
+  const [channel, setChannel] = useState<FilterChannel>("All");
+  const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [composerOpen, setComposerOpen] = useState(false);
 
-  const filtered = conversations.filter(
-    (c) => (channel === "All" || c.channel === channel) && c.customer.toLowerCase().includes(search.toLowerCase())
+  const logsQuery = useCommunicationLogs({ channel });
+  const sendComm = useSendCommunication();
+  const vehiclesQuery = useVehicles({ limit: 100 });
+
+  const conversations = logsQuery.data?.conversations ?? [];
+
+  const filtered = useMemo(
+    () => conversations.filter((c) => c.customer.toLowerCase().includes(search.toLowerCase()) || c.contact.toLowerCase().includes(search.toLowerCase())),
+    [conversations, search],
   );
-  const detail = conversations.find((c) => c.id === selected);
+
+  useEffect(() => {
+    if (selected && filtered.some((c) => c.id === selected)) return;
+    if (filtered.length > 0) setSelected(filtered[0].id);
+    else setSelected(null);
+  }, [filtered, selected]);
+
+  const detail = filtered.find((c) => c.id === selected) ?? null;
+
+  const [replyText, setReplyText] = useState("");
+  const [replyChannel, setReplyChannel] = useState<ClientCommChannel>("Email");
+  useEffect(() => {
+    if (detail) setReplyChannel(detail.lastChannel);
+  }, [detail?.id]);
+
+  const [newForm, setNewForm] = useState({
+    recipientName: "", recipientContact: "", channel: "Email" as ClientCommChannel,
+    subject: "", message: "", linkedVehicleId: "",
+  });
+
+  const resetNewForm = () => setNewForm({
+    recipientName: "", recipientContact: "", channel: "Email",
+    subject: "", message: "", linkedVehicleId: "",
+  });
+
+  const handleReply = async () => {
+    if (!detail || !replyText.trim()) return;
+    try {
+      await sendComm.mutateAsync({
+        channel: replyChannel,
+        recipientName: detail.customer,
+        recipientContact: detail.contact,
+        subject: replyChannel === "Email" ? `Re: ${detail.messages.find((m) => m.subject)?.subject ?? "(no subject)"}` : undefined,
+        message: replyText.trim(),
+      });
+      setReplyText("");
+      toast({ title: `${replyChannel} sent`, description: detail.customer });
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Send failed";
+      toast({ title: "Send failed", description: msg, variant: "destructive" });
+    }
+  };
+
+  const handleNewConversation = async () => {
+    if (!newForm.recipientName || !newForm.recipientContact || !newForm.message) {
+      toast({ title: "Missing info", description: "Name, contact, and message are required.", variant: "destructive" });
+      return;
+    }
+    try {
+      await sendComm.mutateAsync({
+        channel: newForm.channel,
+        recipientName: newForm.recipientName,
+        recipientContact: newForm.recipientContact,
+        subject: newForm.subject || undefined,
+        message: newForm.message,
+        linkedVehicleId: newForm.linkedVehicleId || undefined,
+      });
+      toast({ title: `${newForm.channel} sent`, description: newForm.recipientName });
+      setSelected(newForm.recipientContact);
+      resetNewForm();
+      setComposerOpen(false);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Send failed";
+      toast({ title: "Send failed", description: msg, variant: "destructive" });
+    }
+  };
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -40,46 +113,95 @@ export default function Communication() {
           <h1 className="module-title">Communication Center</h1>
           <p className="text-muted-foreground text-sm">Unified messaging across all channels</p>
         </div>
+        <button
+          onClick={() => setComposerOpen(!composerOpen)}
+          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
+        >
+          {composerOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {composerOpen ? "Cancel" : "New Message"}
+        </button>
       </div>
 
+      {composerOpen && (
+        <div className="stat-card space-y-4">
+          <h3 className="font-display font-semibold">Start a New Conversation</h3>
+          <div className="grid md:grid-cols-3 gap-3">
+            <input value={newForm.recipientName} onChange={(e) => setNewForm({ ...newForm, recipientName: e.target.value })} placeholder="Recipient name *" className="border rounded-lg px-3 py-2 text-sm bg-background" />
+            <input value={newForm.recipientContact} onChange={(e) => setNewForm({ ...newForm, recipientContact: e.target.value })} placeholder="Email or phone *" className="border rounded-lg px-3 py-2 text-sm bg-background" />
+            <select value={newForm.channel} onChange={(e) => setNewForm({ ...newForm, channel: e.target.value as ClientCommChannel })} className="border rounded-lg px-3 py-2 text-sm bg-background">
+              {ALL_CHANNELS.map((c) => <option key={c}>{c}</option>)}
+            </select>
+            {newForm.channel === "Email" && (
+              <input value={newForm.subject} onChange={(e) => setNewForm({ ...newForm, subject: e.target.value })} placeholder="Subject" className="border rounded-lg px-3 py-2 text-sm bg-background md:col-span-2" />
+            )}
+            <select value={newForm.linkedVehicleId} onChange={(e) => setNewForm({ ...newForm, linkedVehicleId: e.target.value })} className="border rounded-lg px-3 py-2 text-sm bg-background">
+              <option value="">Link a vehicle (optional)…</option>
+              {(vehiclesQuery.data?.data ?? []).map((v) => <option key={v.id} value={v.id}>{v.title}</option>)}
+            </select>
+          </div>
+          <textarea
+            value={newForm.message}
+            onChange={(e) => setNewForm({ ...newForm, message: e.target.value })}
+            placeholder="Message *"
+            rows={3}
+            className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+          />
+          <div className="flex justify-end gap-2">
+            <button onClick={() => { setComposerOpen(false); resetNewForm(); }} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
+            <button
+              onClick={handleNewConversation}
+              disabled={sendComm.isPending}
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-60"
+            >
+              {sendComm.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Send
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2 flex-wrap">
-        {(["All", "Email", "SMS", "WhatsApp", "Call"] as Channel[]).map((c) => (
-          <button key={c} onClick={() => setChannel(c)} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${channel === c ? "bg-primary text-primary-foreground" : "bg-card border hover:bg-muted"}`}>{c}</button>
+        {(["All", ...ALL_CHANNELS] as FilterChannel[]).map((c) => (
+          <button
+            key={c}
+            onClick={() => setChannel(c)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium ${channel === c ? "bg-primary text-primary-foreground" : "bg-card border hover:bg-muted"}`}
+          >
+            {c}
+          </button>
         ))}
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-4 h-[calc(100vh-280px)]">
-        {/* Conversation List */}
+      <div className="grid lg:grid-cols-3 gap-4 h-[calc(100vh-360px)] min-h-[400px]">
         <div className="stat-card flex flex-col overflow-hidden">
           <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-2 mb-3">
             <Search className="h-4 w-4 text-muted-foreground" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search..." className="bg-transparent text-sm outline-none w-full" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or contact…" className="bg-transparent text-sm outline-none w-full" />
           </div>
+
+          {logsQuery.isLoading && (
+            <div className="flex items-center justify-center text-muted-foreground text-sm gap-2 py-12">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            </div>
+          )}
+
+          {logsQuery.error && (
+            <div className="text-red-600 text-sm py-3 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" /> {logsQuery.error instanceof Error ? logsQuery.error.message : "Could not load"}
+            </div>
+          )}
+
+          {!logsQuery.isLoading && filtered.length === 0 && (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm text-center px-3">
+              No conversations match. Click "New Message" to start one.
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto space-y-1">
-            {filtered.map((c) => {
-              const Icon = channelIcons[c.channel];
-              return (
-                <div key={c.id} onClick={() => setSelected(c.id)} className={`p-3 rounded-lg cursor-pointer transition-colors ${selected === c.id ? "bg-primary/5 border border-primary/20" : "hover:bg-muted"}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">{c.customer}</span>
-                      {c.unread && <span className="h-2 w-2 bg-primary rounded-full" />}
-                    </div>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${channelColors[c.channel]}`}><Icon className="h-3 w-3 inline" /></span>
-                  </div>
-                  <p className="text-xs text-muted-foreground truncate">{c.lastMsg}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Car className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-[10px] text-muted-foreground">{c.vehicle}</span>
-                    <span className="text-[10px] text-muted-foreground ml-auto">{c.time}</span>
-                  </div>
-                </div>
-              );
-            })}
+            {filtered.map((c) => <ConversationListItem key={c.id} c={c} selected={selected === c.id} onSelect={() => setSelected(c.id)} />)}
           </div>
         </div>
 
-        {/* Chat View */}
         <div className="lg:col-span-2 stat-card flex flex-col overflow-hidden">
           {detail ? (
             <>
@@ -88,36 +210,113 @@ export default function Communication() {
                   <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center"><User className="h-5 w-5 text-muted-foreground" /></div>
                   <div>
                     <p className="font-medium">{detail.customer}</p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span className={`px-1.5 py-0.5 rounded ${channelColors[detail.channel]}`}>{detail.channel}</span>
-                      <Car className="h-3 w-3" /> {detail.vehicle}
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                      <span className="font-mono">{detail.contact}</span>
+                      {[...detail.channels].map((c) => (
+                        <span key={c} className={`px-1.5 py-0.5 rounded ${channelColors[c]}`}>{c}</span>
+                      ))}
+                      {detail.vehicleTitle && (
+                        <span className="flex items-center gap-1"><Car className="h-3 w-3" />{detail.vehicleTitle}</span>
+                      )}
                     </div>
                   </div>
-                </div>
-                <div className="flex gap-1">
-                  <button className="p-2 hover:bg-muted rounded-lg"><Phone className="h-4 w-4" /></button>
-                  <button className="p-2 hover:bg-muted rounded-lg"><Mail className="h-4 w-4" /></button>
                 </div>
               </div>
 
               <div className="flex-1 overflow-y-auto py-4 space-y-4">
-                {chatMessages.map((m, i) => (
-                  <div key={i} className={`flex gap-3 ${m.role === "agent" ? "flex-row-reverse" : ""}`}>
-                    <div className={`max-w-[70%] ${m.role === "agent" ? "text-right" : ""}`}>
-                      <div className={`p-3 rounded-xl text-sm ${m.role === "agent" ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-muted rounded-tl-sm"}`}>{m.text}</div>
-                      <p className="text-[10px] text-muted-foreground mt-1">{m.time}</p>
+                {detail.messages.map((m) => {
+                  const isAgent = m.direction === "outbound";
+                  const Icon = channelIcons[m.channel];
+                  return (
+                    <div key={m.id} className={`flex gap-3 ${isAgent ? "flex-row-reverse" : ""}`}>
+                      <div className={`max-w-[70%] ${isAgent ? "text-right" : ""}`}>
+                        <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1">
+                          <Icon className="h-3 w-3" />
+                          <span>{m.channel}</span>
+                          {m.subject && m.channel === "Email" && (
+                            <span className="ml-1 font-medium">{m.subject}</span>
+                          )}
+                        </div>
+                        <div className={`p-3 rounded-xl text-sm whitespace-pre-wrap ${isAgent ? "bg-primary text-primary-foreground rounded-tr-sm" : "bg-muted rounded-tl-sm"}`}>
+                          {m.message || (m.channel === "Call" && m.callDurationSeconds ? `Call · ${Math.round(m.callDurationSeconds / 60)} min` : "(no content)")}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          {isAgent && m.sentByName ? `${m.sentByName} · ` : ""}{m.time}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
-              <div className="border-t pt-4 flex gap-2">
-                <input placeholder="Type a message..." className="flex-1 border rounded-lg px-3 py-2 text-sm bg-background" />
-                <button className="bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium">Send</button>
+              <div className="border-t pt-4 space-y-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Send via:</span>
+                  {ALL_CHANNELS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setReplyChannel(c)}
+                      className={`px-2 py-1 rounded text-xs ${replyChannel === c ? `${channelColors[c]} font-medium` : "text-muted-foreground hover:bg-muted"}`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleReply(); } }}
+                    placeholder={`Type a ${replyChannel} message…`}
+                    className="flex-1 border rounded-lg px-3 py-2 text-sm bg-background"
+                  />
+                  <button
+                    onClick={handleReply}
+                    disabled={!replyText.trim() || sendComm.isPending}
+                    className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-60"
+                  >
+                    {sendComm.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Send
+                  </button>
+                </div>
               </div>
             </>
-          ) : <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">Select a conversation</div>}
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm text-center px-6">
+              {logsQuery.isLoading ? "Loading conversations…" : "Select a conversation, or start a new one with the \"New Message\" button above."}
+            </div>
+          )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ConversationListItem({ c, selected, onSelect }: { c: Conversation; selected: boolean; onSelect: () => void }) {
+  const Icon = channelIcons[c.lastChannel];
+  return (
+    <div
+      onClick={onSelect}
+      className={`p-3 rounded-lg cursor-pointer transition-colors ${selected ? "bg-primary/5 border border-primary/20" : "hover:bg-muted"}`}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-medium text-sm truncate">{c.customer}</span>
+          {c.unread && <span className="h-2 w-2 bg-primary rounded-full shrink-0" />}
+        </div>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded ${channelColors[c.lastChannel]}`}>
+          <Icon className="h-3 w-3 inline" />
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground truncate">{c.lastMessage}</p>
+      <div className="flex items-center gap-2 mt-1">
+        {c.vehicleTitle && (
+          <>
+            <Car className="h-3 w-3 text-muted-foreground shrink-0" />
+            <span className="text-[10px] text-muted-foreground truncate">{c.vehicleTitle}</span>
+          </>
+        )}
+        <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{c.lastTime}</span>
       </div>
     </div>
   );
