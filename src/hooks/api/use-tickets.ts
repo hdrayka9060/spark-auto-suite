@@ -89,7 +89,11 @@ export function useCreateTicket() {
       });
       return toClientTicket(created);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: TICKETS_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: TICKETS_KEY });
+      // Tickets feed the dashboard activity stream.
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 
@@ -103,7 +107,11 @@ export function useReplyToTicket(id: string) {
       });
       return toClientTicket(updated);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: TICKETS_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: TICKETS_KEY });
+      // Tickets feed the dashboard activity stream.
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 
@@ -117,7 +125,11 @@ export function useUpdateTicketStatus(id: string) {
       });
       return toClientTicket(updated);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: TICKETS_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: TICKETS_KEY });
+      // Tickets feed the dashboard activity stream.
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 
@@ -135,6 +147,10 @@ export function useUploadTicketAttachments(id: string) {
       });
       return toClientTicket(updated);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: TICKETS_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: TICKETS_KEY });
+      // Tickets feed the dashboard activity stream.
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }

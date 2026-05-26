@@ -96,6 +96,7 @@ export function useCreateSale() {
       qc.invalidateQueries({ queryKey: ["buyers"] });
       qc.invalidateQueries({ queryKey: ["leads"] });
       qc.invalidateQueries({ queryKey: ["sellers"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }
@@ -110,7 +111,10 @@ export function useUpdateSale(id: string) {
       });
       return toClientSale(updated);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ACCOUNTING_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ACCOUNTING_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 
@@ -120,7 +124,10 @@ export function useDeleteSale() {
     mutationFn: async (id: string) => {
       await api(`/accounting/sales/${id}`, { method: "DELETE" });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ACCOUNTING_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ACCOUNTING_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 
@@ -134,7 +141,10 @@ export function useCreateExpense() {
       });
       return toClientExpense(created);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ACCOUNTING_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ACCOUNTING_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 
@@ -148,7 +158,10 @@ export function useUpdateExpense(id: string) {
       });
       return toClientExpense(updated);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ACCOUNTING_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ACCOUNTING_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 
@@ -158,7 +171,10 @@ export function useDeleteExpense() {
     mutationFn: async (id: string) => {
       await api(`/accounting/expenses/${id}`, { method: "DELETE" });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ACCOUNTING_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ACCOUNTING_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 

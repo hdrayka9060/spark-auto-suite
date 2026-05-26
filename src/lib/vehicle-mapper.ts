@@ -22,6 +22,50 @@ export type ServerHosting = "self" | "platform";
 export type ServerFuelType = "petrol" | "diesel" | "electric" | "hybrid" | "cng";
 export type ServerTransmission = "manual" | "automatic" | "cvt";
 
+/**
+ * Canonical body-type list rendered by every vehicle form. Kept short on
+ * purpose so the dropdown stays scannable — the NHTSA VIN decoder returns
+ * dozens of free-text values, all of which get squashed onto one of these
+ * via `normalizeBodyType` below.
+ *
+ * Stored as-is on the backend (`Vehicle.bodyType: string`) — the backend
+ * doesn't enforce the enum so legacy / VIN-decoded freeform values still
+ * round-trip cleanly.
+ */
+export const ALL_BODY_TYPES = [
+  "Sedan", "SUV", "Truck", "Pickup", "Coupe", "Hatchback",
+  "Convertible", "Wagon", "Van", "Minivan", "Crossover", "Other",
+] as const;
+export type BodyType = typeof ALL_BODY_TYPES[number];
+
+/**
+ * Coerce any free-text body-type string (NHTSA VIN response, CSV import,
+ * legacy data) onto the canonical list. "Other" is the safety net so an
+ * unrecognised value never breaks the dropdown.
+ *
+ * Order matters: "pickup" must check before "truck" since some NHTSA
+ * BodyClass values include both words.
+ */
+export function normalizeBodyType(raw: string | null | undefined): BodyType {
+  if (!raw) return "Other";
+  const s = raw.toLowerCase();
+  if (s.includes("pickup")) return "Pickup";
+  if (s.includes("truck")) return "Truck";
+  if (s.includes("sedan") || s.includes("saloon")) return "Sedan";
+  if (s.includes("suv") || s.includes("sport utility")) return "SUV";
+  if (s.includes("coupe")) return "Coupe";
+  if (s.includes("hatchback") || s.includes("hatch")) return "Hatchback";
+  if (s.includes("convertible") || s.includes("roadster") || s.includes("cabriolet")) return "Convertible";
+  if (s.includes("wagon") || s.includes("estate")) return "Wagon";
+  if (s.includes("minivan") || s.includes("mpv")) return "Minivan";
+  if (s.includes("crossover")) return "Crossover";
+  if (s.includes("van")) return "Van";
+  // If the raw value already matches one of our canonical entries (e.g. "Sedan"
+  // typed by hand), pick it up verbatim.
+  const exact = ALL_BODY_TYPES.find((t) => t.toLowerCase() === s);
+  return (exact as BodyType) ?? "Other";
+}
+
 export interface ServerVehicle {
   _id: string;
   vehicleNumber: string;

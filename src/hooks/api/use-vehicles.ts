@@ -113,6 +113,7 @@ export function useCreateVehicle() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }
@@ -129,6 +130,7 @@ export function useUpdateVehicle(id: string) {
     },
     onSuccess: (_data, patch) => {
       qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
       // A status change on a vehicle ripples into accounting (sale rows),
       // leads (sibling-archive on flip → sold, closed-lead-archive on flip
       // OUT of sold) and buyers (purchases[] entries). Without this the
@@ -150,6 +152,12 @@ export function useDeleteVehicle() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      // Deleting a sold vehicle cascades to accounting + leads + buyers
+      // (the inventory.service softDelete → cleanupSoldArtifacts path).
+      qc.invalidateQueries({ queryKey: ["accounting"] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["buyers"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }

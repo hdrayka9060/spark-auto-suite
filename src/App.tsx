@@ -7,6 +7,7 @@ import { AuthProvider } from "@/lib/auth-context";
 import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Auth from "./pages/Auth";
+import AcceptInvite from "./pages/AcceptInvite";
 import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
 import VehicleDetail from "./pages/VehicleDetail";
@@ -47,6 +48,7 @@ const App = () => (
         <AuthProvider>
         <Routes>
           <Route path="/auth" element={<Auth />} />
+          <Route path="/accept-invite" element={<AcceptInvite />} />
           <Route path="/" element={<Protected><Dashboard /></Protected>} />
           <Route path="/inventory" element={<Protected><Inventory /></Protected>} />
           <Route path="/inventory/:id" element={<Protected><VehicleDetail /></Protected>} />

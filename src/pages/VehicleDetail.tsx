@@ -14,7 +14,7 @@ import { useBuyers } from "@/hooks/api/use-buyers";
 import { useLeads } from "@/hooks/api/use-leads";
 import { ApiError, fileUrl } from "@/lib/api";
 import {
-  ALL_VEHICLE_STATUSES, ServerHosting, VEHICLE_STATUS_BADGE_CLASS,
+  ALL_BODY_TYPES, ALL_VEHICLE_STATUSES, ServerHosting, VEHICLE_STATUS_BADGE_CLASS,
   Vehicle, normalizeFuelType, normalizeTransmission, vehicleStatusToServer,
 } from "@/lib/vehicle-mapper";
 import { ClientPaymentStatus } from "@/lib/accounting-mapper";
@@ -639,7 +639,16 @@ export default function VehicleDetail() {
                 <input value={editForm.color} onChange={(e) => setEditForm({ ...editForm, color: e.target.value })} className="w-full border rounded px-2 py-1 text-sm bg-background" />
               </EditField>
               <EditField icon={Hash} label="Body Type">
-                <input value={editForm.bodyType} onChange={(e) => setEditForm({ ...editForm, bodyType: e.target.value })} placeholder="Sedan / SUV…" className="w-full border rounded px-2 py-1 text-sm bg-background" />
+                <select
+                  value={editForm.bodyType}
+                  onChange={(e) => setEditForm({ ...editForm, bodyType: e.target.value })}
+                  className="w-full border rounded px-2 py-1 text-sm bg-background"
+                >
+                  <option value="">Select…</option>
+                  {ALL_BODY_TYPES.map((bt) => (
+                    <option key={bt} value={bt}>{bt}</option>
+                  ))}
+                </select>
               </EditField>
               <EditField icon={Hash} label="VIN">
                 <input value={editForm.vin} onChange={(e) => setEditForm({ ...editForm, vin: e.target.value })} className="w-full border rounded px-2 py-1 text-sm bg-background font-mono" />

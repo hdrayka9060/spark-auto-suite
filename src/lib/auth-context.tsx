@@ -51,6 +51,16 @@ interface RegisterInput {
   dealershipName?: string;
 }
 
+export interface AcceptInviteInput {
+  token: string;
+  password: string;
+  /** Optional overrides — backend allows the invitee to correct their own
+   *  name/phone before activation (admin may have typo'd the invite). */
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+}
+
 type AuthState =
   | { status: "loading"; user: null }
   | { status: "authenticated"; user: AuthUser }
@@ -95,6 +105,7 @@ interface AuthContextValue {
   state: AuthState;
   login: (email: string, password: string) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
+  acceptInvite: (input: AcceptInviteInput) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (input: ProfileUpdateInput) => Promise<AuthUser>;
 }
@@ -153,6 +164,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "LOGIN_SUCCESS", user: result.user });
   }, []);
 
+  /**
+   * Accept an invite — backend sets the password, flips status to ACTIVE,
+   * and returns tokens identical to /auth/login. We reuse LOGIN_SUCCESS so
+   * the rest of the app treats this as a normal login from here on.
+   */
+  const acceptInvite = useCallback(async (input: AcceptInviteInput) => {
+    const result = await api<LoginResponse>("/auth/accept-invite", {
+      method: "POST",
+      body: input,
+      auth: false,
+    });
+    tokenStorage.set(result.accessToken, result.refreshToken);
+    dispatch({ type: "LOGIN_SUCCESS", user: result.user });
+  }, []);
+
   const updateProfile = useCallback(async (input: ProfileUpdateInput): Promise<AuthUser> => {
     const userId = state.user?._id;
     if (!userId) throw new Error("Not authenticated");
@@ -175,8 +201,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ state, login, register, logout, updateProfile }),
-    [state, login, register, logout, updateProfile],
+    () => ({ state, login, register, acceptInvite, logout, updateProfile }),
+    [state, login, register, acceptInvite, logout, updateProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

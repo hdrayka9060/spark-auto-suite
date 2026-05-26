@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import {
   DollarSign, TrendingUp, AlertCircle, Plus, X, Loader2, Receipt, Edit, Trash2, Download,
 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { TimePeriodSelector } from "@/components/TimePeriodSelector";
+import { PERIOD_PRESETS, PeriodPreset } from "@/lib/period-helpers";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import {
   useCreateExpense, useCreateSale, useDeleteExpense, useDeleteSale, useExpenses,
   useFinancialSummary, useProfitLoss, useSales, useUpdateExpense, useUpdateSale,
@@ -23,10 +25,6 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { CalendarRange } from "lucide-react";
-import type { DateRange } from "react-day-picker";
 
 const statusColors: Record<ClientPaymentStatus, string> = {
   Paid: "bg-emerald-100 text-emerald-700",
@@ -69,6 +67,11 @@ export default function Accounting() {
   const [rangeStart, setRangeStart] = useState<string>("");
   const [rangeEnd, setRangeEnd] = useState<string>("");
 
+  // Time-period selector state. `periodPreset` tracks which radio is "selected"
+  // for label purposes; the actual filter is still rangeStart/rangeEnd above.
+  // We default to "all" to preserve the existing first-paint behaviour.
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("all");
+
   const summaryQuery = useFinancialSummary(rangeStart || undefined, rangeEnd || undefined);
   const salesQuery = useSales({ startDate: rangeStart || undefined, endDate: rangeEnd || undefined });
   const expensesQuery = useExpenses({ startDate: rangeStart || undefined, endDate: rangeEnd || undefined });
@@ -94,10 +97,14 @@ export default function Accounting() {
     { label: "Outstanding", value: summary ? formatMoney(summary.outstanding) : "—", icon: AlertCircle, color: "bg-red-50 text-red-600" },
   ], [summary]);
 
-  // Sale form
+  // Sale form. `salePrice` is what the buyer actually paid (the "Sold at"
+  // figure). The dealer's `costPrice` is intentionally NOT collected here —
+  // it's pulled from the linked Vehicle's inventory record at submit time,
+  // mirroring how Inventory's MarkAsSoldDialog + Lead's CloseLeadDialog
+  // already do it. Single source of truth: the vehicle.
   const [saleForm, setSaleForm] = useState({
     vehicleId: "", buyerName: "", buyerEmail: "",
-    salePrice: "", costPrice: "", discount: "", amountPaid: "",
+    salePrice: "", discount: "", amountPaid: "",
     saleDate: new Date().toISOString().slice(0, 10),
     paymentMethod: "cash" as "cash" | "finance" | "bhph" | "trade_in",
     paymentStatus: "Paid" as ClientPaymentStatus,
@@ -107,7 +114,7 @@ export default function Accounting() {
   });
   const resetSaleForm = () => setSaleForm({
     vehicleId: "", buyerName: "", buyerEmail: "",
-    salePrice: "", costPrice: "", discount: "", amountPaid: "",
+    salePrice: "", discount: "", amountPaid: "",
     saleDate: new Date().toISOString().slice(0, 10),
     paymentMethod: "cash", paymentStatus: "Paid", notes: "",
     linkedLeadId: "", linkedBuyerId: "",
@@ -163,7 +170,7 @@ export default function Accounting() {
     const vehicle = vehiclesQuery.data?.data.find((v) => v.id === saleForm.vehicleId);
     if (!vehicle) { toast({ title: "Pick a vehicle", variant: "destructive" }); return; }
     if (!saleForm.buyerName || !saleForm.buyerEmail || !saleForm.salePrice) {
-      toast({ title: "Missing info", description: "Buyer name, email, and sale price are required.", variant: "destructive" });
+      toast({ title: "Missing info", description: "Buyer name, email, and sold-at price are required.", variant: "destructive" });
       return;
     }
     try {
@@ -175,7 +182,10 @@ export default function Accounting() {
         buyerName: saleForm.buyerName,
         buyerEmail: saleForm.buyerEmail,
         salePrice: parseFloat(saleForm.salePrice),
-        costPrice: saleForm.costPrice ? parseFloat(saleForm.costPrice) : 0,
+        // costPrice comes from the linked Vehicle (single source of truth).
+        // Dealer never re-enters it here — matches MarkAsSoldDialog +
+        // LeadCloseDialog and prevents two stored cost figures drifting apart.
+        costPrice: vehicle.costPrice ?? 0,
         discount: saleForm.discount ? parseFloat(saleForm.discount) : 0,
         amountPaid: saleForm.amountPaid !== "" ? parseFloat(saleForm.amountPaid) : undefined,
         saleDate: saleForm.saleDate,
@@ -436,9 +446,26 @@ export default function Accounting() {
       <div className="module-header">
         <div>
           <h1 className="module-title">Accounting</h1>
-          <p className="text-muted-foreground text-sm">Financial overview and records</p>
+          <p className="text-muted-foreground text-sm">
+            Financial overview and records ·{" "}
+            <span className="font-medium">
+              {periodPreset === "custom" && rangeStart && rangeEnd
+                ? `${rangeStart} → ${rangeEnd}`
+                : PERIOD_PRESETS.find((p) => p.value === periodPreset)?.label ?? "All Time"}
+            </span>
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center flex-wrap">
+          <TimePeriodSelector
+            preset={periodPreset}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onChange={({ preset, startDate, endDate }) => {
+              setPeriodPreset(preset);
+              setRangeStart(startDate);
+              setRangeEnd(endDate);
+            }}
+          />
           <button
             onClick={() => { setShowAddExpense(!showAddExpense); setShowAddSale(false); }}
             className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
@@ -452,79 +479,6 @@ export default function Accounting() {
           >
             {showAddSale ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
             {showAddSale ? "Cancel" : "Record Sale"}
-          </button>
-        </div>
-      </div>
-
-      {/* Global date-range filter — drives every KPI, ledger, breakdown, and CSV. */}
-      <div className="stat-card flex flex-wrap items-center gap-3">
-        <Popover>
-          <PopoverTrigger asChild>
-            <button className="flex items-center gap-2 border rounded-lg px-3 py-2 text-sm bg-background hover:bg-muted/60 min-w-[260px] justify-between">
-              <span className="flex items-center gap-2">
-                <CalendarRange className="h-4 w-4 text-muted-foreground" />
-                <span className="font-medium">
-                  {rangeStart || rangeEnd
-                    ? `${rangeStart || "Beginning"} → ${rangeEnd || "Today"}`
-                    : "All time"}
-                </span>
-              </span>
-              <span className="text-xs text-muted-foreground">Change</span>
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="range"
-              numberOfMonths={2}
-              selected={{
-                from: rangeStart ? new Date(rangeStart) : undefined,
-                to: rangeEnd ? new Date(rangeEnd) : undefined,
-              }}
-              onSelect={(range: DateRange | undefined) => {
-                setRangeStart(range?.from ? range.from.toISOString().slice(0, 10) : "");
-                setRangeEnd(range?.to ? range.to.toISOString().slice(0, 10) : "");
-              }}
-              initialFocus
-            />
-            <div className="flex items-center gap-2 border-t p-2">
-              <button
-                onClick={() => { setRangeStart(""); setRangeEnd(""); }}
-                className="text-xs px-2 py-1 rounded hover:bg-muted ml-auto"
-              >
-                Clear
-              </button>
-            </div>
-          </PopoverContent>
-        </Popover>
-
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => {
-              const end = new Date();
-              const start = new Date(end.getFullYear(), end.getMonth(), 1);
-              setRangeStart(start.toISOString().slice(0, 10));
-              setRangeEnd(end.toISOString().slice(0, 10));
-            }}
-            className="px-3 py-1.5 text-xs border rounded-lg hover:bg-muted"
-          >
-            This month
-          </button>
-          <button
-            onClick={() => {
-              const end = new Date();
-              const start = new Date(end.getFullYear(), 0, 1);
-              setRangeStart(start.toISOString().slice(0, 10));
-              setRangeEnd(end.toISOString().slice(0, 10));
-            }}
-            className="px-3 py-1.5 text-xs border rounded-lg hover:bg-muted"
-          >
-            YTD
-          </button>
-          <button
-            onClick={() => { setRangeStart(""); setRangeEnd(""); }}
-            className="px-3 py-1.5 text-xs border rounded-lg hover:bg-muted"
-          >
-            All time
           </button>
         </div>
       </div>
@@ -583,8 +537,10 @@ export default function Accounting() {
               </>
             )}
             <input type="date" value={saleForm.saleDate} onChange={(e) => setSaleForm({ ...saleForm, saleDate: e.target.value })} className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <input value={saleForm.salePrice} onChange={(e) => setSaleForm({ ...saleForm, salePrice: e.target.value })} placeholder="Sale price ($) *" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <input value={saleForm.costPrice} onChange={(e) => setSaleForm({ ...saleForm, costPrice: e.target.value })} placeholder="Cost price ($)" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
+            <input value={saleForm.salePrice} onChange={(e) => setSaleForm({ ...saleForm, salePrice: e.target.value })} placeholder="Sold at ($) *" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
+            {/* Cost price is intentionally NOT collected here — taken from the
+                linked Vehicle in handleSaveSale (same source as MarkAsSold +
+                Lead Close). Avoids two cost figures drifting apart. */}
             <input value={saleForm.discount} onChange={(e) => setSaleForm({ ...saleForm, discount: e.target.value })} placeholder="Discount ($)" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
             <input value={saleForm.amountPaid} onChange={(e) => setSaleForm({ ...saleForm, amountPaid: e.target.value })} placeholder="Amount paid ($) — required for Partial" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
             <select value={saleForm.paymentMethod} onChange={(e) => setSaleForm({ ...saleForm, paymentMethod: e.target.value as typeof saleForm.paymentMethod })} className="border rounded-lg px-3 py-2 text-sm bg-background">
@@ -648,15 +604,19 @@ export default function Accounting() {
           ) : (plQuery.data?.buckets ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No sales or expenses in the last 12 months.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={280}>
               <BarChart data={plQuery.data!.buckets}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 13% 91%)" />
                 <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}K`} />
                 <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} />
-                <Bar dataKey="revenue" fill="hsl(222 60% 45%)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="expenses" fill="hsl(220 13% 80%)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="profit" fill="hsl(152 60% 42%)" radius={[4, 4, 0, 0]} />
+                <Legend
+                  wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                  iconType="square"
+                />
+                <Bar dataKey="revenue"  name="Revenue"  fill="hsl(222 60% 45%)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="expenses" name="Expenses" fill="hsl(220 13% 80%)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="profit"   name="Profit"   fill="hsl(152 60% 42%)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}

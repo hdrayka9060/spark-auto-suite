@@ -1,105 +1,701 @@
-import { useState } from "react";
-import { Plus, Upload, Search, Mail, Phone } from "lucide-react";
-import { staff, roles, getRoleById } from "@/data/staff";
+import { useMemo, useRef, useState } from "react";
+import { Plus, Upload, Download, Search, Mail, Phone, Trash2, Pencil, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
+import {
+  useStaffList,
+  useInviteUser,
+  useUpdateUser,
+  useDeleteUser,
+  useBulkInviteUsers,
+  type BulkInviteResult,
+} from "@/hooks/api/use-staff";
+import { useRoles } from "@/hooks/api/use-roles";
+import { useAuth } from "@/lib/auth-context";
+import { ApiError } from "@/lib/api";
+import {
+  Staff,
+  STAFF_STATUSES,
+  STAFF_STATUS_BADGE_CLASS,
+  buildSampleStaffCsv,
+  staffInitials,
+  type ClientStaffStatus,
+} from "@/lib/staff-mapper";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-const statusColors: Record<string, string> = {
-  Active: "bg-emerald-100 text-emerald-700",
-  Invited: "bg-amber-100 text-amber-700",
-  Suspended: "bg-red-100 text-red-700",
-};
+/**
+ * Staff Management page — Phase 8 wire-up.
+ *
+ * Replaces the old mock-data version (`@/data/staff` import gone). Hooks
+ * directly into the NestJS /users endpoints via use-staff/use-roles.
+ *
+ * Capabilities:
+ *   1. Invite a new user (POST /users/invite) → triggers email + INVITED row
+ *   2. Edit user profile + role (PATCH /users/:id) → role change emits a
+ *      dedicated activity row
+ *   3. Soft-delete (DELETE /users/:id) — confirm via AlertDialog; backend
+ *      blocks self-delete; we also hide the button on the current user's row
+ *   4. Bulk-invite via CSV upload — hidden file input
+ *   5. Download a sample CSV — frontend-built Blob (no extra endpoint)
+ *
+ * Per project convention all mutations live inside hook files, the page
+ * never calls `api()` directly. Mutation hooks invalidate ["staff"] and
+ * ["dashboard"] on success so KPIs/activity refresh.
+ */
+
+const STATUS_FILTERS: ("All" | ClientStaffStatus)[] = ["All", ...STAFF_STATUSES];
 
 export default function StaffManagement() {
-  const [search, setSearch] = useState("");
-  const [showAdd, setShowAdd] = useState(false);
-  const [roleFilter, setRoleFilter] = useState("All");
+  const { state: authState } = useAuth();
+  const currentUserId = authState.status === "authenticated" ? authState.user._id : null;
 
-  const filtered = staff.filter(
-    (s) =>
-      (roleFilter === "All" || s.roleId === roleFilter) &&
-      (s.name.toLowerCase().includes(search.toLowerCase()) || s.email.toLowerCase().includes(search.toLowerCase()))
-  );
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("All");
+  const [statusFilter, setStatusFilter] = useState<"All" | ClientStaffStatus>("All");
+
+  const rolesQuery = useRoles();
+  const staffQuery = useStaffList({
+    search: search || undefined,
+    status: statusFilter,
+    roleId: roleFilter,
+  });
+
+  // ── Invite dialog state ─────────────────────────────────────────────────
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteForm, setInviteForm] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    roleId: "",
+  });
+  const inviteMutation = useInviteUser();
+
+  const resetInviteForm = () =>
+    setInviteForm({ firstName: "", lastName: "", email: "", phone: "", roleId: "" });
+
+  const submitInvite = async () => {
+    const { firstName, lastName, email, roleId, phone } = inviteForm;
+    if (!firstName.trim() || !lastName.trim() || !email.trim() || !roleId) {
+      toast.error("First name, last name, email, and role are required");
+      return;
+    }
+    try {
+      await inviteMutation.mutateAsync({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
+        roleId,
+      });
+      toast.success(`Invitation sent to ${email}`);
+      setInviteOpen(false);
+      resetInviteForm();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not send invite");
+    }
+  };
+
+  // ── Edit dialog state ───────────────────────────────────────────────────
+  const [editing, setEditing] = useState<Staff | null>(null);
+  const [editForm, setEditForm] = useState({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    department: "",
+    roleId: "",
+  });
+  const updateMutation = useUpdateUser();
+
+  const openEdit = (staff: Staff) => {
+    setEditing(staff);
+    setEditForm({
+      firstName: staff.firstName,
+      lastName: staff.lastName,
+      phone: staff.phone,
+      department: staff.department,
+      roleId: staff.roleId ?? "",
+    });
+  };
+
+  const submitEdit = async () => {
+    if (!editing) return;
+    try {
+      // Build a sparse PATCH — only include fields that actually changed so
+      // the backend's role-changed-vs-updated activity differentiation works
+      // correctly. (Sending roleId equal to the current value would not
+      // trigger the role-changed branch anyway, but keeping payloads minimal
+      // is good hygiene.)
+      const input: Record<string, string> = {};
+      if (editForm.firstName !== editing.firstName) input.firstName = editForm.firstName.trim();
+      if (editForm.lastName !== editing.lastName) input.lastName = editForm.lastName.trim();
+      if (editForm.phone !== editing.phone) input.phone = editForm.phone.trim();
+      if (editForm.department !== editing.department) input.department = editForm.department.trim();
+      if (editForm.roleId && editForm.roleId !== editing.roleId) input.roleId = editForm.roleId;
+
+      if (Object.keys(input).length === 0) {
+        toast.info("No changes to save");
+        setEditing(null);
+        return;
+      }
+
+      await updateMutation.mutateAsync({ id: editing.id, input });
+      toast.success("Staff member updated");
+      setEditing(null);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not update staff member");
+    }
+  };
+
+  // ── Delete confirmation state ───────────────────────────────────────────
+  const [deleting, setDeleting] = useState<Staff | null>(null);
+  const deleteMutation = useDeleteUser();
+
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    try {
+      await deleteMutation.mutateAsync(deleting.id);
+      toast.success(`${deleting.fullName} was removed`);
+      setDeleting(null);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not delete user");
+    }
+  };
+
+  // ── Bulk upload & sample CSV ────────────────────────────────────────────
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const bulkMutation = useBulkInviteUsers();
+  // When the bulk endpoint returns either successes OR per-row errors, we
+  // open a dialog with the full breakdown so the admin can see exactly which
+  // emails landed and which were rejected (mail failure, role not found, etc.)
+  // — instead of cramming a few errors into a toast description.
+  const [bulkResult, setBulkResult] = useState<BulkInviteResult | null>(null);
+
+  const handleBulkFile = async (file: File) => {
+    try {
+      const result = await bulkMutation.mutateAsync(file);
+      setBulkResult(result);
+      // Lightweight toast as immediate feedback; the dialog has the detail.
+      if (result.errors.length === 0) {
+        toast.success(`Invited ${result.created} staff member${result.created === 1 ? "" : "s"}`);
+      } else if (result.created === 0) {
+        toast.error(`All ${result.errors.length} row${result.errors.length === 1 ? "" : "s"} failed`);
+      } else {
+        toast.warning(
+          `Invited ${result.created} · ${result.errors.length} row${result.errors.length === 1 ? "" : "s"} skipped`,
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Bulk upload failed");
+    }
+  };
+
+  const downloadSampleCsv = () => {
+    const csv = buildSampleStaffCsv();
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "staff-bulk-upload-sample.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const totalCount = staffQuery.data?.length ?? 0;
+
+  // Pre-compute the role-filter buttons. We render "All" + one button per role
+  // returned by useRoles so the filter set always tracks the DB.
+  const roles = rolesQuery.data ?? [];
+
+  const filteredCount = useMemo(() => totalCount, [totalCount]);
 
   return (
     <div className="animate-fade-in space-y-6">
       <div className="module-header">
         <div>
           <h1 className="module-title">Staff Management</h1>
-          <p className="text-muted-foreground text-sm">{staff.length} team members</p>
+          <p className="text-muted-foreground text-sm">
+            {staffQuery.isLoading ? "Loading…" : `${filteredCount} team member${filteredCount === 1 ? "" : "s"}`}
+          </p>
         </div>
-        <div className="flex gap-2">
-          <button className="flex items-center gap-2 bg-muted px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"><Upload className="h-4 w-4" /> Bulk Upload</button>
-          <button onClick={() => setShowAdd(!showAdd)} className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90">
-            <Plus className="h-4 w-4" /> Add Staff
+        <div className="flex gap-2 flex-wrap">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleBulkFile(f);
+              // Reset so picking the same file twice still triggers onChange.
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={downloadSampleCsv}
+            className="flex items-center gap-2 bg-muted px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
+            title="Download a sample CSV with the expected columns"
+          >
+            <Download className="h-4 w-4" /> Sample CSV
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={bulkMutation.isPending}
+            className="flex items-center gap-2 bg-muted px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80 disabled:opacity-50"
+          >
+            {bulkMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            Bulk Upload
+          </button>
+          <button
+            onClick={() => setInviteOpen(true)}
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" /> Invite Staff
           </button>
         </div>
       </div>
 
-      {showAdd && (
-        <div className="stat-card space-y-4">
-          <h3 className="font-display font-semibold">Invite Staff Member</h3>
-          <div className="grid md:grid-cols-2 gap-4">
-            <input placeholder="Full Name" className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <input placeholder="Email" type="email" className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <input placeholder="Phone" className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <select className="border rounded-lg px-3 py-2 text-sm bg-background">
-              {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
-            <button className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg">Send Invite</button>
-          </div>
-        </div>
-      )}
-
-      <div className="flex gap-3 flex-wrap">
+      {/* Filters */}
+      <div className="flex gap-3 flex-wrap items-center">
         <div className="flex items-center gap-2 bg-card border rounded-lg px-3 py-2 flex-1 max-w-sm">
           <Search className="h-4 w-4 text-muted-foreground" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search staff..." className="bg-transparent text-sm outline-none w-full" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name or email…"
+            className="bg-transparent text-sm outline-none w-full"
+          />
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setRoleFilter("All")} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${roleFilter === "All" ? "bg-primary text-primary-foreground" : "bg-card border hover:bg-muted"}`}>All</button>
+
+        {/* Role chips */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setRoleFilter("All")}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+              roleFilter === "All"
+                ? "bg-primary text-primary-foreground"
+                : "bg-card border hover:bg-muted"
+            }`}
+          >
+            All roles
+          </button>
           {roles.map((r) => (
-            <button key={r.id} onClick={() => setRoleFilter(r.id)} className={`px-3 py-1.5 rounded-lg text-sm font-medium ${roleFilter === r.id ? "bg-primary text-primary-foreground" : "bg-card border hover:bg-muted"}`}>{r.name}</button>
+            <button
+              key={r._id}
+              onClick={() => setRoleFilter(r._id)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                roleFilter === r._id
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card border hover:bg-muted"
+              }`}
+            >
+              {r.name}
+            </button>
+          ))}
+        </div>
+
+        {/* Status chips */}
+        <div className="flex items-center gap-2">
+          {STATUS_FILTERS.map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                statusFilter === s
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card border hover:bg-muted"
+              }`}
+            >
+              {s}
+            </button>
           ))}
         </div>
       </div>
 
+      {/* Errors */}
+      {staffQuery.isError && (
+        <div className="stat-card border-red-200 bg-red-50 text-red-700 text-sm flex items-center gap-2">
+          Failed to load staff:{" "}
+          {staffQuery.error instanceof Error ? staffQuery.error.message : "Unknown error"}
+        </div>
+      )}
+
+      {/* Table */}
       <div className="stat-card overflow-x-auto">
         <table className="data-table">
           <thead>
-            <tr><th>Name</th><th>Contact</th><th>Role</th><th>Status</th><th>Joined</th><th>Last Active</th></tr>
+            <tr>
+              <th>Name</th>
+              <th>Contact</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Joined</th>
+              <th>Last Active</th>
+              <th className="text-right">Actions</th>
+            </tr>
           </thead>
           <tbody>
-            {filtered.map((s) => {
-              const role = getRoleById(s.roleId);
+            {staffQuery.isLoading && (
+              <tr>
+                <td colSpan={7} className="text-center text-sm text-muted-foreground py-8">
+                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Loading staff…
+                </td>
+              </tr>
+            )}
+            {!staffQuery.isLoading && totalCount === 0 && (
+              <tr>
+                <td colSpan={7} className="text-center text-sm text-muted-foreground py-8">
+                  No staff match your filters. Click <em>Invite Staff</em> to add someone.
+                </td>
+              </tr>
+            )}
+            {(staffQuery.data ?? []).map((s) => {
+              const isSelf = currentUserId === s.id;
               return (
-                <tr key={s.id}>
+                <tr key={s.id} className="group">
                   <td>
                     <div className="flex items-center gap-3">
                       <div className="h-9 w-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-semibold">
-                        {s.name.split(" ").map((n) => n[0]).join("")}
+                        {staffInitials(s)}
                       </div>
                       <div>
-                        <p className="font-medium text-sm">{s.name}</p>
-                        <p className="text-xs text-muted-foreground">{s.id}</p>
+                        <p className="font-medium text-sm">
+                          {s.fullName} {isSelf && <span className="text-xs text-muted-foreground">(you)</span>}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{s.department || "—"}</p>
                       </div>
                     </div>
                   </td>
                   <td className="text-sm">
-                    <p className="flex items-center gap-1.5"><Mail className="h-3 w-3 text-muted-foreground" /> {s.email}</p>
-                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Phone className="h-3 w-3" /> {s.phone}</p>
+                    <p className="flex items-center gap-1.5">
+                      <Mail className="h-3 w-3 text-muted-foreground" /> {s.email}
+                    </p>
+                    {s.phone && (
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Phone className="h-3 w-3" /> {s.phone}
+                      </p>
+                    )}
                   </td>
-                  <td><span className="status-badge bg-blue-50 text-blue-700">{role?.name}</span></td>
-                  <td><span className={`status-badge ${statusColors[s.status]}`}>{s.status}</span></td>
+                  <td>
+                    <span className="status-badge bg-blue-50 text-blue-700">{s.roleName}</span>
+                  </td>
+                  <td>
+                    <span className={`status-badge ${STAFF_STATUS_BADGE_CLASS[s.status]}`}>
+                      {s.status}
+                    </span>
+                  </td>
                   <td className="text-xs text-muted-foreground">{s.joinedDate}</td>
-                  <td className="text-xs text-muted-foreground">{s.lastActive}</td>
+                  <td className="text-xs text-muted-foreground" title="Surfaces the user's last updatedAt — we don't track logins directly today">
+                    {s.lastActive}
+                  </td>
+                  <td className="text-right">
+                    <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => openEdit(s)}
+                        className="p-2 rounded hover:bg-muted"
+                        title="Edit"
+                      >
+                        <Pencil className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                      {!isSelf && (
+                        <button
+                          onClick={() => setDeleting(s)}
+                          className="p-2 rounded hover:bg-red-50"
+                          title="Remove"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-600" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+
+      {/* ── Invite dialog ───────────────────────────────────────────────── */}
+      <Dialog open={inviteOpen} onOpenChange={(open) => { setInviteOpen(open); if (!open) resetInviteForm(); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invite a new staff member</DialogTitle>
+            <DialogDescription>
+              They'll receive an email with a link to set their password and activate their account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="i-firstName">First name</Label>
+                <Input
+                  id="i-firstName"
+                  value={inviteForm.firstName}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, firstName: e.target.value }))}
+                  autoComplete="given-name"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="i-lastName">Last name</Label>
+                <Input
+                  id="i-lastName"
+                  value={inviteForm.lastName}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, lastName: e.target.value }))}
+                  autoComplete="family-name"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="i-email">Email</Label>
+              <Input
+                id="i-email"
+                type="email"
+                value={inviteForm.email}
+                onChange={(e) => setInviteForm((f) => ({ ...f, email: e.target.value }))}
+                autoComplete="email"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="i-phone">Phone (optional)</Label>
+              <Input
+                id="i-phone"
+                value={inviteForm.phone}
+                onChange={(e) => setInviteForm((f) => ({ ...f, phone: e.target.value }))}
+                autoComplete="tel"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="i-role">Role</Label>
+              <Select
+                value={inviteForm.roleId}
+                onValueChange={(v) => setInviteForm((f) => ({ ...f, roleId: v }))}
+              >
+                <SelectTrigger id="i-role">
+                  <SelectValue placeholder={rolesQuery.isLoading ? "Loading…" : "Select a role"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((r) => (
+                    <SelectItem key={r._id} value={r._id}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={submitInvite} disabled={inviteMutation.isPending}>
+              {inviteMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Send invite
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit dialog ─────────────────────────────────────────────────── */}
+      <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit staff member</DialogTitle>
+            <DialogDescription>
+              Update name, contact info, or role. Role changes take effect on the user's next request.
+            </DialogDescription>
+          </DialogHeader>
+          {editing && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="e-firstName">First name</Label>
+                  <Input
+                    id="e-firstName"
+                    value={editForm.firstName}
+                    onChange={(e) => setEditForm((f) => ({ ...f, firstName: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="e-lastName">Last name</Label>
+                  <Input
+                    id="e-lastName"
+                    value={editForm.lastName}
+                    onChange={(e) => setEditForm((f) => ({ ...f, lastName: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input value={editing.email} disabled />
+                <p className="text-xs text-muted-foreground">
+                  Email is the user's login — changing it isn't supported here.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="e-phone">Phone</Label>
+                <Input
+                  id="e-phone"
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="e-department">Department</Label>
+                <Input
+                  id="e-department"
+                  value={editForm.department}
+                  onChange={(e) => setEditForm((f) => ({ ...f, department: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="e-role">Role</Label>
+                <Select
+                  value={editForm.roleId}
+                  onValueChange={(v) => setEditForm((f) => ({ ...f, roleId: v }))}
+                >
+                  <SelectTrigger id="e-role">
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map((r) => (
+                      <SelectItem key={r._id} value={r._id}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button onClick={submitEdit} disabled={updateMutation.isPending}>
+              {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Bulk upload result dialog ───────────────────────────────────── */}
+      <Dialog open={bulkResult !== null} onOpenChange={(open) => !open && setBulkResult(null)}>
+        <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Bulk upload results</DialogTitle>
+            <DialogDescription>
+              {bulkResult && (
+                <>
+                  {bulkResult.created} invited · {bulkResult.errors.length} skipped
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {bulkResult && (
+            <div className="space-y-4 overflow-y-auto">
+              {bulkResult.invited.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm flex items-center gap-2 text-emerald-700">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Invitations sent ({bulkResult.invited.length})
+                  </h4>
+                  <ul className="text-sm space-y-1 max-h-40 overflow-y-auto bg-emerald-50/50 rounded-md p-3 border border-emerald-100">
+                    {bulkResult.invited.map((email) => (
+                      <li key={email} className="font-mono text-xs">{email}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {bulkResult.errors.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm flex items-center gap-2 text-red-700">
+                    <AlertCircle className="h-4 w-4" />
+                    Skipped — no user was created for these rows ({bulkResult.errors.length})
+                  </h4>
+                  <ul className="text-xs space-y-1.5 max-h-60 overflow-y-auto bg-red-50/50 rounded-md p-3 border border-red-100">
+                    {bulkResult.errors.map((err, i) => (
+                      <li key={i} className="text-red-900">{err}</li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-muted-foreground">
+                    Fix the issues (typos, role names, mail config) and re-upload only the failed rows.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setBulkResult(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete confirmation ─────────────────────────────────────────── */}
+      <AlertDialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this staff member?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleting && (
+                <>
+                  <strong>{deleting.fullName}</strong> ({deleting.email}) will be deactivated and
+                  blocked from signing in. This is a soft delete — their historical activity is
+                  preserved in the audit log.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                // Default behavior closes the dialog before we await; prevent
+                // so we can control closing ourselves once the mutation lands.
+                e.preventDefault();
+                confirmDelete();
+              }}
+              disabled={deleteMutation.isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleteMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

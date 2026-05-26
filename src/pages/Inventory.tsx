@@ -9,7 +9,7 @@ import {
 import { useBulkUploadVehicles, useCreateVehicle, useDeleteVehicle, useVehicles } from "@/hooks/api/use-vehicles";
 import { api, ApiError, fileUrl } from "@/lib/api";
 import {
-  ALL_VEHICLE_STATUSES, VEHICLE_STATUS_BADGE_CLASS,
+  ALL_BODY_TYPES, ALL_VEHICLE_STATUSES, VEHICLE_STATUS_BADGE_CLASS, normalizeBodyType,
   type ServerVehicle, type Vehicle,
 } from "@/lib/vehicle-mapper";
 import { toast } from "@/hooks/use-toast";
@@ -149,7 +149,7 @@ export default function Inventory() {
         engine: [r.DisplacementL && `${parseFloat(r.DisplacementL).toFixed(1)}L`, r.EngineCylinders && `${r.EngineCylinders}-cyl`, r.EngineHP && `${r.EngineHP}hp`].filter(Boolean).join(" · ") || f.engine,
         fuel: r.FuelTypePrimary || f.fuel,
         transmission: [r.TransmissionStyle, r.TransmissionSpeeds && `${r.TransmissionSpeeds}-spd`].filter(Boolean).join(" ") || f.transmission,
-        bodyType: r.BodyClass || f.bodyType,
+        bodyType: normalizeBodyType(r.BodyClass) || f.bodyType,
         plant: [r.PlantCity, r.PlantState, r.PlantCountry].filter(Boolean).join(", "),
         country: r.PlantCountry || "",
         title: [year, make && toTitle(make), model, r.Trim].filter(Boolean).join(" ") || f.title,
@@ -403,7 +403,6 @@ export default function Inventory() {
                 ["engine", "Engine", "text"],
                 ["fuel", "Fuel Type", "text"],
                 ["transmission", "Transmission", "text"],
-                ["bodyType", "Body Type", "text"],
               ] as const).map(([k, label, type]) => (
                 <div key={k}>
                   <label className="text-[11px] text-muted-foreground">{label}</label>
@@ -416,6 +415,20 @@ export default function Inventory() {
                   />
                 </div>
               ))}
+              {/* Body type as a canonical dropdown (see vehicle-mapper.ts). */}
+              <div>
+                <label className="text-[11px] text-muted-foreground">Body Type</label>
+                <select
+                  value={form.bodyType}
+                  onChange={(e) => setField("bodyType", e.target.value)}
+                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                >
+                  <option value="">Select body type…</option>
+                  {ALL_BODY_TYPES.map((bt) => (
+                    <option key={bt} value={bt}>{bt}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 

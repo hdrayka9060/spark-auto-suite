@@ -13,7 +13,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import type { VehicleFormInput } from "@/lib/vehicle-mapper";
+import { ALL_BODY_TYPES, normalizeBodyType, type BodyType, type VehicleFormInput } from "@/lib/vehicle-mapper";
 
 const toTitle = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -95,7 +95,10 @@ export function VehicleFormDialog({
         engine: [r.DisplacementL && `${parseFloat(r.DisplacementL).toFixed(1)}L`, r.EngineCylinders && `${r.EngineCylinders}-cyl`, r.EngineHP && `${r.EngineHP}hp`].filter(Boolean).join(" · ") || f.engine,
         fuel: r.FuelTypePrimary || f.fuel,
         transmission: [r.TransmissionStyle, r.TransmissionSpeeds && `${r.TransmissionSpeeds}-spd`].filter(Boolean).join(" ") || f.transmission,
-        bodyType: r.BodyClass || f.bodyType,
+        // NHTSA returns long free-text body classes (e.g. "Sedan/Saloon",
+        // "Sport Utility Vehicle (SUV)/Multi-Purpose Vehicle (MPV)"). Squash
+        // onto our canonical list so the dropdown can show it pre-selected.
+        bodyType: normalizeBodyType(r.BodyClass) || f.bodyType,
         plant: [r.PlantCity, r.PlantState, r.PlantCountry].filter(Boolean).join(", "),
         title: [year, make && toTitle(make), model, r.Trim].filter(Boolean).join(" ") || f.title,
       }));
@@ -226,7 +229,6 @@ export function VehicleFormDialog({
               ["engine", "Engine", "text"],
               ["fuel", "Fuel Type", "text"],
               ["transmission", "Transmission", "text"],
-              ["bodyType", "Body Type", "text"],
             ] as const).map(([k, label, type]) => (
               <div key={k}>
                 <label className="text-[11px] text-muted-foreground">{label}</label>
@@ -239,6 +241,21 @@ export function VehicleFormDialog({
                 />
               </div>
             ))}
+            {/* Body type: canonical-enum dropdown so dealers don't free-form
+                values like "sedan" / "Sedan" / "Sedan/Saloon" inconsistently. */}
+            <div>
+              <label className="text-[11px] text-muted-foreground">Body Type</label>
+              <select
+                value={form.bodyType}
+                onChange={(e) => setField("bodyType", e.target.value)}
+                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background"
+              >
+                <option value="">Select body type…</option>
+                {ALL_BODY_TYPES.map((bt) => (
+                  <option key={bt} value={bt}>{bt}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 

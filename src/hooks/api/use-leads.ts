@@ -60,6 +60,11 @@ export function useLead(id: string | undefined) {
 function seedDetail(qc: QueryClient, id: string, lead: Lead) {
   qc.setQueryData([...LEADS_KEY, "detail", id], lead);
   qc.invalidateQueries({ queryKey: LEADS_KEY });
+  // Any lead mutation (status flip, log entry, test-drive booking, etc.)
+  // potentially affects dashboard KPIs (Active Leads count, activity feed,
+  // pendingTestDrives if test_drive booked). Invalidate so the dashboard
+  // page reflects without waiting for the polling interval.
+  qc.invalidateQueries({ queryKey: ["dashboard"] });
 }
 
 export function useCreateLead() {
@@ -72,7 +77,10 @@ export function useCreateLead() {
       });
       return toClientLead(created);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: LEADS_KEY }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: LEADS_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 
@@ -130,6 +138,7 @@ export function useDeleteLead() {
       qc.invalidateQueries({ queryKey: ["vehicles"] });
       qc.invalidateQueries({ queryKey: ["accounting"] });
       qc.invalidateQueries({ queryKey: ["buyers"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }

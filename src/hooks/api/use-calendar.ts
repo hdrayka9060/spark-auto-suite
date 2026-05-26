@@ -45,6 +45,8 @@ export function useCreateCalendarEvent() {
       // useVehicleTestDriveCount lives under ["vehicles", "testDrives"]; invalidate
       // the whole vehicles prefix so any open VehicleDetail re-counts.
       qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      // pendingTestDrives KPI + activity feed both come from calendar events.
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }
@@ -58,6 +60,7 @@ export function useDeleteCalendarEvent() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: CALENDAR_KEY });
       qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }

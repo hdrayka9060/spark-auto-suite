@@ -54,6 +54,9 @@ export function useBuyer(id: string | undefined) {
 
 function invalidateBuyers(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: BUYERS_KEY });
+  // Buyer mutations feed the dashboard activity stream (new-lead entries
+  // mention the buyer). Keep the dashboard in sync without a hard reload.
+  qc.invalidateQueries({ queryKey: ["dashboard"] });
 }
 
 export function useCreateBuyer() {

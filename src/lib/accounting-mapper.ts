@@ -191,6 +191,11 @@ export function toClientProfitLoss(server: {
   const monthSet = new Set<number>([...salesByMonth.keys(), ...expensesByMonth.keys()]);
   const months = [...monthSet].sort((a, b) => a - b);
 
+  // Profit is computed the same way the Accounting "Profit" KPI tile shows
+  // it: revenue − cost-of-vehicles (gross margin), NOT revenue − cost − expenses.
+  // Expenses are surfaced in the chart on their own bar so the dealer can
+  // eyeball overhead vs margin, but they DON'T reduce the profit figure —
+  // matches AccountingService.getSummary's `totalProfit: revenue − cost`.
   const buckets: PLBucket[] = months.map((m) => {
     const sale = salesByMonth.get(m);
     const expense = expensesByMonth.get(m);
@@ -203,7 +208,7 @@ export function toClientProfitLoss(server: {
       revenue,
       cost,
       expenses,
-      profit: revenue - cost - expenses,
+      profit: revenue - cost,
     };
   });
 
