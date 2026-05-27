@@ -31,12 +31,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { state, logout } = useAuth();
+  const { state, logout, hasPermission } = useAuth();
   const user = state.status === "authenticated" ? state.user : null;
   const displayName = user
     ? `${user.firstName} ${user.lastName}`.trim() || user.email
     : "Dealer";
   const roleLabel = user?.roleId?.name ?? "";
+
+  // Filter navigation items based on user permissions
+  const visibleNavItems = navItems.filter((item) => {
+    // Always show Dashboard (read-only)
+    if (item.label === "Dashboard") return true;
+    // For other modules, check if user has at least VIEW permission
+    return hasPermission(item.label, "view");
+  });
 
   const handleLogout = async () => {
     await logout();
@@ -58,7 +66,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <nav
           className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         >
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const active =
               item.path === "/"
                 ? location.pathname === "/"

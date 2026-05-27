@@ -108,6 +108,8 @@ interface AuthContextValue {
   acceptInvite: (input: AcceptInviteInput) => Promise<void>;
   logout: () => Promise<void>;
   updateProfile: (input: ProfileUpdateInput) => Promise<AuthUser>;
+  /** Check if authenticated user has a permission on a module. */
+  hasPermission: (module: string, action: PermissionAction) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -200,9 +202,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "LOGOUT" });
   }, []);
 
+  const hasPermission = useCallback(
+    (module: string, action: PermissionAction): boolean => {
+      if (state.status !== "authenticated" || !state.user?.roleId) return false;
+      const perms = state.user.roleId.permissions ?? [];
+      const modulePerm = perms.find((p) => p.module === module);
+      return modulePerm?.actions?.includes(action) ?? false;
+    },
+    [state],
+  );
+
   const value = useMemo<AuthContextValue>(
-    () => ({ state, login, register, acceptInvite, logout, updateProfile }),
-    [state, login, register, acceptInvite, logout, updateProfile],
+    () => ({
+      state,
+      login,
+      register,
+      acceptInvite,
+      logout,
+      updateProfile,
+      hasPermission,
+    }),
+    [state, login, register, acceptInvite, logout, updateProfile, hasPermission],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

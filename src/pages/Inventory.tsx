@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useBulkUploadVehicles, useCreateVehicle, useDeleteVehicle, useVehicles } from "@/hooks/api/use-vehicles";
 import { api, ApiError, fileUrl } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import {
   ALL_BODY_TYPES, ALL_VEHICLE_STATUSES, VEHICLE_STATUS_BADGE_CLASS, normalizeBodyType,
   type ServerVehicle, type Vehicle,
@@ -24,6 +25,8 @@ type StatusFilter = "All" | Vehicle["status"];
 export default function Inventory() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { hasPermission } = useAuth();
+  const canDeleteInventory = hasPermission("Inventory", "delete");
   const savedState = (location.state as { search?: string; statusFilter?: StatusFilter; view?: "grid" | "list" } | null) ?? null;
   const [search, setSearch] = useState(savedState?.search ?? "");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(savedState?.statusFilter ?? "All");
@@ -574,6 +577,7 @@ export default function Inventory() {
               vehicle={v}
               onOpen={() => openVehicle(v.id)}
               onDelete={(e) => handleDelete(e, v)}
+              canDelete={canDeleteInventory}
             />
           ))}
         </div>
@@ -625,7 +629,9 @@ export default function Inventory() {
                     <div className="flex gap-1">
                       <button onClick={() => openVehicle(v.id)} className="p-1.5 rounded hover:bg-muted"><Eye className="h-3.5 w-3.5" /></button>
                       <button onClick={() => openVehicle(v.id)} className="p-1.5 rounded hover:bg-muted" title="Edit on detail page"><Edit className="h-3.5 w-3.5" /></button>
-                      <button onClick={(e) => handleDelete(e, v)} className="p-1.5 rounded hover:bg-red-50 text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                      {canDeleteInventory && (
+                        <button onClick={(e) => handleDelete(e, v)} className="p-1.5 rounded hover:bg-red-50 text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -654,10 +660,11 @@ function VehicleThumb({ image }: { image: string }) {
   return <span className="text-2xl">{image}</span>;
 }
 
-function VehicleCard({ vehicle: v, onOpen, onDelete }: {
+function VehicleCard({ vehicle: v, onOpen, onDelete, canDelete }: {
   vehicle: Vehicle;
   onOpen: () => void;
   onDelete: (e: React.MouseEvent) => void;
+  canDelete: boolean;
 }) {
   const isImagePath = v.image.includes("/");
   return (
@@ -680,13 +687,15 @@ function VehicleCard({ vehicle: v, onOpen, onDelete }: {
         <span className="absolute bottom-3 left-3 text-[10px] font-mono bg-background/80 backdrop-blur px-2 py-0.5 rounded">
           {v.id.slice(-6)}
         </span>
-        <button
-          onClick={onDelete}
-          className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-background/80 backdrop-blur hover:bg-red-50 text-red-500"
-          title="Delete"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        {canDelete && (
+          <button
+            onClick={onDelete}
+            className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-background/80 backdrop-blur hover:bg-red-50 text-red-500"
+            title="Delete"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
       <div className="p-4 space-y-3">
         <div>
