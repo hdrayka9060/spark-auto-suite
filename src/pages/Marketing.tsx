@@ -9,6 +9,7 @@ import {
   ClientCampaignPlatform, ClientCampaignStatus, rollupPortfolio,
 } from "@/lib/campaign-mapper";
 import { toast } from "@/hooks/use-toast";
+import { useCan } from "@/components/Can";
 
 const statusColors: Record<ClientCampaignStatus, string> = {
   Draft: "bg-gray-100 text-gray-700",
@@ -36,6 +37,7 @@ export default function Marketing() {
   const campaignsQuery = useCampaigns({ status: statusFilter, platform: platformFilter });
   const metricsQuery = useCampaignMetrics();
   const createCampaign = useCreateCampaign();
+  const canEdit = useCan("Digital Marketing", "edit");
 
   const campaigns = campaignsQuery.data?.data ?? [];
   const platformMetrics = metricsQuery.data ?? [];
@@ -106,13 +108,15 @@ export default function Marketing() {
           <h1 className="module-title">Digital Marketing</h1>
           <p className="text-muted-foreground text-sm">Campaign performance and lead tracking</p>
         </div>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
-        >
-          {showCreate ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-          {showCreate ? "Cancel" : "Create Campaign"}
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
+          >
+            {showCreate ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {showCreate ? "Cancel" : "Create Campaign"}
+          </button>
+        )}
       </div>
 
       {showCreate && (

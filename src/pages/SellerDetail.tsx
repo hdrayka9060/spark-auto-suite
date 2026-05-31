@@ -25,6 +25,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { VehicleFormDialog } from "@/components/VehicleFormDialog";
+import { useCan } from "@/components/Can";
 
 const ALL_STAGES: ServerSellerStage[] = ["new", "contacted", "inspection", "negotiation", "sold", "rejected"];
 
@@ -62,6 +63,9 @@ export default function SellerDetail() {
   const createCalendarEvent = useCreateCalendarEvent();
   const staffQuery = useStaff();
   const staffOptions = staffQuery.data ?? [];
+
+  const canEdit = useCan("CRM – Sellers", "edit");
+  const canDelete = useCan("CRM – Sellers", "delete");
 
   const seller = sellerQuery.data;
   const back = () => navigate("/crm-sellers", { state: location.state });
@@ -294,18 +298,22 @@ export default function SellerDetail() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <BackBtn onClick={back} />
         <div className="flex gap-2">
-          <button
-            onClick={() => setEditOpen(true)}
-            className="flex items-center gap-2 bg-muted px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
-          >
-            <Edit className="h-4 w-4" /> Edit
-          </button>
-          <button
-            onClick={() => setDeleteOpen(true)}
-            className="flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-100"
-          >
-            <Trash2 className="h-4 w-4" /> Delete
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setEditOpen(true)}
+              className="flex items-center gap-2 bg-muted px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
+            >
+              <Edit className="h-4 w-4" /> Edit
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={() => setDeleteOpen(true)}
+              className="flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-100"
+            >
+              <Trash2 className="h-4 w-4" /> Delete
+            </button>
+          )}
         </div>
       </div>
 
@@ -338,28 +346,30 @@ export default function SellerDetail() {
             )}
           </div>
 
-          <div className="pt-2 space-y-2">
-            <button
-              onClick={() => setPendingChannel("email")}
-              className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 flex items-center justify-center gap-2"
-            >
-              <Mail className="h-4 w-4" /> Send Email
-            </button>
-            <div className="grid grid-cols-2 gap-2">
+          {canEdit && (
+            <div className="pt-2 space-y-2">
               <button
-                onClick={() => setPendingChannel("call")}
-                className="bg-muted py-2 rounded-lg text-sm font-medium hover:bg-muted/80 flex items-center justify-center gap-2"
+                onClick={() => setPendingChannel("email")}
+                className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 flex items-center justify-center gap-2"
               >
-                <Phone className="h-4 w-4" /> Call
+                <Mail className="h-4 w-4" /> Send Email
               </button>
-              <button
-                onClick={() => setPendingChannel("whatsapp")}
-                className="bg-emerald-100 text-emerald-700 py-2 rounded-lg text-sm font-medium hover:bg-emerald-200 flex items-center justify-center gap-2"
-              >
-                <MessageCircle className="h-4 w-4" /> WhatsApp
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setPendingChannel("call")}
+                  className="bg-muted py-2 rounded-lg text-sm font-medium hover:bg-muted/80 flex items-center justify-center gap-2"
+                >
+                  <Phone className="h-4 w-4" /> Call
+                </button>
+                <button
+                  onClick={() => setPendingChannel("whatsapp")}
+                  className="bg-emerald-100 text-emerald-700 py-2 rounded-lg text-sm font-medium hover:bg-emerald-200 flex items-center justify-center gap-2"
+                >
+                  <MessageCircle className="h-4 w-4" /> WhatsApp
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="lg:col-span-3 grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -404,12 +414,14 @@ export default function SellerDetail() {
       <div className="stat-card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display font-semibold">Vehicles Uploaded ({seller.vehiclesListed.length})</h3>
-          <button
-            onClick={() => setAddVehicleOpen(true)}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-sm font-medium hover:opacity-90"
-          >
-            <Plus className="h-4 w-4" /> Add Vehicle
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setAddVehicleOpen(true)}
+              className="flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-sm font-medium hover:opacity-90"
+            >
+              <Plus className="h-4 w-4" /> Add Vehicle
+            </button>
+          )}
         </div>
 
         {seller.vehiclesListed.length === 0 ? (
@@ -476,7 +488,7 @@ export default function SellerDetail() {
                           ) : (
                             <span className="text-xs text-muted-foreground">Legacy</span>
                           )}
-                          {navigable && (
+                          {navigable && canEdit && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleRemoveVehicle(v.vehicleId, v.title); }}
                               disabled={removeVehicle.isPending}
@@ -592,20 +604,22 @@ export default function SellerDetail() {
               placeholder="Notes (optional)"
               className="w-full border rounded-lg px-3 py-1.5 text-sm bg-background"
             />
-            <button
-              onClick={handleScheduleInspection}
-              disabled={
-                scheduleInspection.isPending ||
-                createCalendarEvent.isPending ||
-                !inspectVehicleId ||
-                !inspectDate ||
-                !inspectTime
-              }
-              className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2"
-            >
-              {(scheduleInspection.isPending || createCalendarEvent.isPending) && <Loader2 className="h-4 w-4 animate-spin" />}
-              Book inspection
-            </button>
+            {canEdit && (
+              <button
+                onClick={handleScheduleInspection}
+                disabled={
+                  scheduleInspection.isPending ||
+                  createCalendarEvent.isPending ||
+                  !inspectVehicleId ||
+                  !inspectDate ||
+                  !inspectTime
+                }
+                className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {(scheduleInspection.isPending || createCalendarEvent.isPending) && <Loader2 className="h-4 w-4 animate-spin" />}
+                Book inspection
+              </button>
+            )}
             <p className="text-[10px] text-muted-foreground">
               Books a calendar event and moves the seller to the Inspection stage.
             </p>

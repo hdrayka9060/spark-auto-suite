@@ -6,6 +6,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth-context";
+import { ConfirmProvider } from "@/components/ConfirmDialog";
 import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PermissionRoute from "./components/PermissionRoute";
@@ -85,6 +86,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+        <ConfirmProvider>
         <RouteErrorBoundary>
         <Suspense fallback={<RouteFallback />}>
         <Routes>
@@ -115,6 +117,7 @@ const App = () => (
         </Routes>
         </Suspense>
         </RouteErrorBoundary>
+        </ConfirmProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

@@ -4,6 +4,7 @@ import { useUpdateVehicle, useVehicles } from "@/hooks/api/use-vehicles";
 import { ApiError, fileUrl } from "@/lib/api";
 import { Vehicle } from "@/lib/vehicle-mapper";
 import { toast } from "@/hooks/use-toast";
+import { useCan } from "@/components/Can";
 
 /**
  * The "Published on Website" state is derived from vehicle.status:
@@ -138,6 +139,7 @@ function DealerWebsiteRow({
   vehicle: v, editing, onStartEdit, onStopEdit,
 }: { vehicle: Vehicle; editing: boolean; onStartEdit: () => void; onStopEdit: () => void }) {
   const update = useUpdateVehicle(v.id);
+  const canEdit = useCan("Dealer Website", "edit");
   const [price, setPrice] = useState(String(v.price));
   const [discount, setDiscount] = useState(String(v.discount));
   const [desc, setDesc] = useState(v.description);
@@ -205,12 +207,12 @@ function DealerWebsiteRow({
       </td>
       <td>
         <label className="inline-flex items-center cursor-pointer" title="Published = visible on public website (status: Unsold)">
-          <input type="checkbox" checked={published} onChange={togglePublish} disabled={update.isPending} className="sr-only peer" />
+          <input type="checkbox" checked={published} onChange={togglePublish} disabled={!canEdit || update.isPending} className="sr-only peer" />
           <div className="w-9 h-5 bg-gray-300 peer-checked:bg-primary rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-4" />
         </label>
       </td>
       <td>
-        {editing ? (
+        {canEdit && (editing ? (
           <button onClick={saveEdits} disabled={update.isPending} className="p-1.5 rounded bg-emerald-100 text-emerald-700 disabled:opacity-60">
             {update.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
           </button>
@@ -218,7 +220,7 @@ function DealerWebsiteRow({
           <button onClick={() => { setPrice(String(v.price)); setDiscount(String(v.discount)); setDesc(v.description); onStartEdit(); }} className="p-1.5 rounded hover:bg-muted">
             <Edit2 className="h-3.5 w-3.5" />
           </button>
-        )}
+        ))}
       </td>
     </tr>
   );

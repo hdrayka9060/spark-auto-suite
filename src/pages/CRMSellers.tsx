@@ -17,6 +17,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { VehicleFormDialog } from "@/components/VehicleFormDialog";
+import { useCan } from "@/components/Can";
 
 const stages: (ClientSellerStatus | "All")[] = ["All", "VIP", "Active", "Inactive"];
 
@@ -56,6 +57,9 @@ export default function CRMSellers() {
   const sellersQuery = useSellers({ search, status: statusFilter });
   const createSeller = useCreateSeller();
   const deleteSeller = useDeleteSeller();
+
+  const canEdit = useCan("CRM – Sellers", "edit");
+  const canDelete = useCan("CRM – Sellers", "delete");
 
   const [form, setForm] = useState(seedSellerForm());
   const [vehicleDrafts, setVehicleDrafts] = useState<VehicleDraft[]>([]);
@@ -171,13 +175,15 @@ export default function CRMSellers() {
           <h1 className="module-title">CRM – Sellers</h1>
           <p className="text-muted-foreground text-sm">People wanting to sell vehicles to your dealership</p>
         </div>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
-        >
-          {showAdd ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-          {showAdd ? "Cancel" : "New Seller"}
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowAdd(!showAdd)}
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
+          >
+            {showAdd ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {showAdd ? "Cancel" : "New Seller"}
+          </button>
+        )}
       </div>
 
       {showAdd && (
@@ -374,13 +380,15 @@ export default function CRMSellers() {
                   >
                     <Edit className="h-3.5 w-3.5" /> Open / Edit
                   </button>
-                  <button
-                    onClick={() => setPendingDelete(s)}
-                    className="flex items-center justify-center gap-1.5 bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-100"
-                    title="Delete seller"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {canDelete && (
+                    <button
+                      onClick={() => setPendingDelete(s)}
+                      className="flex items-center justify-center gap-1.5 bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-100"
+                      title="Delete seller"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -436,9 +444,11 @@ export default function CRMSellers() {
                       <button onClick={() => open(s.id)} className="text-muted-foreground hover:text-primary">
                         <Edit className="h-4 w-4" />
                       </button>
-                      <button onClick={() => setPendingDelete(s)} className="text-red-600 hover:text-red-700">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {canDelete && (
+                        <button onClick={() => setPendingDelete(s)} className="text-red-600 hover:text-red-700">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </div>
                   </td>

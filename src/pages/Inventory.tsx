@@ -14,6 +14,7 @@ import {
   type ServerVehicle, type Vehicle,
 } from "@/lib/vehicle-mapper";
 import { toast } from "@/hooks/use-toast";
+import { useConfirm } from "@/components/ConfirmDialog";
 
 // Status badge styling now lives in the mapper so every page uses the same colors.
 const statusClass = VEHICLE_STATUS_BADGE_CLASS;
@@ -26,7 +27,9 @@ export default function Inventory() {
   const navigate = useNavigate();
   const location = useLocation();
   const { hasPermission } = useAuth();
+  const canEditInventory = hasPermission("Inventory", "edit");
   const canDeleteInventory = hasPermission("Inventory", "delete");
+  const confirm = useConfirm();
   const savedState = (location.state as { search?: string; statusFilter?: StatusFilter; view?: "grid" | "list" } | null) ?? null;
   const [search, setSearch] = useState(savedState?.search ?? "");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(savedState?.statusFilter ?? "All");
@@ -263,7 +266,12 @@ export default function Inventory() {
 
   const handleDelete = async (e: React.MouseEvent, vehicle: Vehicle) => {
     e.stopPropagation();
-    if (!window.confirm(`Delete ${vehicle.title}? This is a soft delete and can be recovered.`)) return;
+    const ok = await confirm({
+      title: `Delete ${vehicle.title}?`,
+      description: "This is a soft delete and can be recovered.",
+      confirmText: "Delete",
+    });
+    if (!ok) return;
     try {
       await deleteVehicle.mutateAsync(vehicle.id);
       toast({ title: "Vehicle deleted", description: vehicle.title });
@@ -303,28 +311,32 @@ export default function Inventory() {
           >
             Download sample CSV
           </button>
-          <button
-            onClick={() => csvInputRef.current?.click()}
-            disabled={bulkUpload.isPending}
-            title="Upload a CSV. Columns: title, company, model, trim, year, engine, fuelType, transmission, bodyType, vin, km, price, discount, owners, color, hosting, description (vehicleNumber optional/auto). Required: company, model, year, price."
-            className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80 disabled:opacity-60"
-          >
-            {bulkUpload.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            {bulkUpload.isPending ? "Uploading…" : "Bulk CSV"}
-          </button>
-          <input
-            ref={csvInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            onChange={handleCsvPicked}
-            className="hidden"
-          />
-          <button
-            onClick={() => setShowAdd(!showAdd)}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            <Plus className="h-4 w-4" /> Add Vehicle
-          </button>
+          {canEditInventory && (
+            <>
+              <button
+                onClick={() => csvInputRef.current?.click()}
+                disabled={bulkUpload.isPending}
+                title="Upload a CSV. Columns: title, company, model, trim, year, engine, fuelType, transmission, bodyType, vin, km, price, discount, owners, color, hosting, description (vehicleNumber optional/auto). Required: company, model, year, price."
+                className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80 disabled:opacity-60"
+              >
+                {bulkUpload.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {bulkUpload.isPending ? "Uploading…" : "Bulk CSV"}
+              </button>
+              <input
+                ref={csvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleCsvPicked}
+                className="hidden"
+              />
+              <button
+                onClick={() => setShowAdd(!showAdd)}
+                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+              >
+                <Plus className="h-4 w-4" /> Add Vehicle
+              </button>
+            </>
+          )}
         </div>
       </div>
 

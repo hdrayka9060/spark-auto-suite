@@ -260,6 +260,9 @@ function actionPhrase(a: ServerActivity): string {
     case "invited":          return ent === "User" ? "Staff invited" : `${ent} invited`;
     case "invite-accepted":  return "Invite accepted";
     case "role-changed":     return "Role changed";
+    case "spend-added":      return "Spend added";
+    case "spend-updated":    return "Spend updated";
+    case "spend-removed":    return "Spend removed";
     default:            return `${ent} ${a.action}`.trim();
   }
 }

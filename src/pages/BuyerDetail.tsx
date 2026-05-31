@@ -27,6 +27,7 @@ import {
 import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { useCan } from "@/components/Can";
 
 const LEAD_STATUSES: ClientBuyerStatus[] = ["Active", "Converted", "Dropped"];
 
@@ -97,6 +98,9 @@ export default function BuyerDetail() {
   const createCalendarEvent = useCreateCalendarEvent();
   const vehiclesQuery = useVehicles({ limit: 100 });
   const staffQuery = useStaff();
+
+  const canEdit = useCan("CRM – Buyers", "edit");
+  const canDelete = useCan("CRM – Buyers", "delete");
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(seedEditForm());
@@ -344,18 +348,22 @@ export default function BuyerDetail() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <BackBtn onClick={back} />
         <div className="flex gap-2">
-          <button
-            onClick={() => setEditOpen(true)}
-            className="flex items-center gap-2 bg-muted px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
-          >
-            <Edit className="h-4 w-4" /> Edit
-          </button>
-          <button
-            onClick={() => setDeleteOpen(true)}
-            className="flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-100"
-          >
-            <Trash2 className="h-4 w-4" /> Delete
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setEditOpen(true)}
+              className="flex items-center gap-2 bg-muted px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
+            >
+              <Edit className="h-4 w-4" /> Edit
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={() => setDeleteOpen(true)}
+              className="flex items-center gap-2 bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-100"
+            >
+              <Trash2 className="h-4 w-4" /> Delete
+            </button>
+          )}
         </div>
       </div>
 
@@ -379,28 +387,30 @@ export default function BuyerDetail() {
               <span className={`status-badge ${statusColors[buyer.status]}`}>{buyer.status}</span>
             </div>
           </div>
-          <div className="pt-2 space-y-2">
-            <button
-              onClick={() => openTestDriveDialog()}
-              className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 flex items-center justify-center gap-2"
-            >
-              <CalendarDays className="h-4 w-4" /> Book Test Drive
-            </button>
-            <div className="grid grid-cols-2 gap-2">
+          {canEdit && (
+            <div className="pt-2 space-y-2">
               <button
-                onClick={() => { setCommForm({ ...seedCommForm(), channel: "call" }); setCommDialogOpen(true); }}
-                className="bg-muted py-2 rounded-lg text-sm font-medium hover:bg-muted/80 flex items-center justify-center gap-2"
+                onClick={() => openTestDriveDialog()}
+                className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 flex items-center justify-center gap-2"
               >
-                <Phone className="h-4 w-4" /> Call
+                <CalendarDays className="h-4 w-4" /> Book Test Drive
               </button>
-              <button
-                onClick={() => { setCommForm({ ...seedCommForm(), channel: "whatsapp" }); setCommDialogOpen(true); }}
-                className="bg-emerald-100 text-emerald-700 py-2 rounded-lg text-sm font-medium hover:bg-emerald-200 flex items-center justify-center gap-2"
-              >
-                <MessageCircle className="h-4 w-4" /> WhatsApp
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => { setCommForm({ ...seedCommForm(), channel: "call" }); setCommDialogOpen(true); }}
+                  className="bg-muted py-2 rounded-lg text-sm font-medium hover:bg-muted/80 flex items-center justify-center gap-2"
+                >
+                  <Phone className="h-4 w-4" /> Call
+                </button>
+                <button
+                  onClick={() => { setCommForm({ ...seedCommForm(), channel: "whatsapp" }); setCommDialogOpen(true); }}
+                  className="bg-emerald-100 text-emerald-700 py-2 rounded-lg text-sm font-medium hover:bg-emerald-200 flex items-center justify-center gap-2"
+                >
+                  <MessageCircle className="h-4 w-4" /> WhatsApp
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -419,26 +429,28 @@ export default function BuyerDetail() {
           </div>
 
           {/* Add interested vehicle picker */}
-          <div className="flex gap-2 mb-3">
-            <select
-              value={pickerVehicleId}
-              onChange={(e) => setPickerVehicleId(e.target.value)}
-              className="flex-1 border rounded-lg px-2 py-2 text-sm bg-background"
-            >
-              <option value="">Pick a vehicle to add…</option>
-              {availableVehicles.map((v) => (
-                <option key={v.id} value={v.id}>{v.title} (${v.price.toLocaleString()})</option>
-              ))}
-            </select>
-            <button
-              onClick={handleAddInterested}
-              disabled={!pickerVehicleId || addInterested.isPending}
-              className="flex items-center gap-1 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60"
-            >
-              {addInterested.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Add
-            </button>
-          </div>
+          {canEdit && (
+            <div className="flex gap-2 mb-3">
+              <select
+                value={pickerVehicleId}
+                onChange={(e) => setPickerVehicleId(e.target.value)}
+                className="flex-1 border rounded-lg px-2 py-2 text-sm bg-background"
+              >
+                <option value="">Pick a vehicle to add…</option>
+                {availableVehicles.map((v) => (
+                  <option key={v.id} value={v.id}>{v.title} (${v.price.toLocaleString()})</option>
+                ))}
+              </select>
+              <button
+                onClick={handleAddInterested}
+                disabled={!pickerVehicleId || addInterested.isPending}
+                className="flex items-center gap-1 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60"
+              >
+                {addInterested.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Add
+              </button>
+            </div>
+          )}
 
           {buyer.interestedVehicles.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">
@@ -464,20 +476,24 @@ export default function BuyerDetail() {
                       View <ArrowRight className="h-3 w-3" />
                     </span>
                   </button>
-                  <button
-                    onClick={() => openTestDriveDialog(v.vehicleId)}
-                    className="text-xs text-primary hover:underline shrink-0 hidden sm:inline"
-                    title="Book test drive for this vehicle"
-                  >
-                    Test drive
-                  </button>
-                  <button
-                    onClick={() => handleRemoveInterested(v.vehicleId)}
-                    disabled={removeInterested.isPending}
-                    className="text-xs text-red-600 hover:underline shrink-0"
-                  >
-                    Remove
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => openTestDriveDialog(v.vehicleId)}
+                      className="text-xs text-primary hover:underline shrink-0 hidden sm:inline"
+                      title="Book test drive for this vehicle"
+                    >
+                      Test drive
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button
+                      onClick={() => handleRemoveInterested(v.vehicleId)}
+                      disabled={removeInterested.isPending}
+                      className="text-xs text-red-600 hover:underline shrink-0"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -487,12 +503,14 @@ export default function BuyerDetail() {
         <div className="stat-card">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-display font-semibold">Test Drives & Purchases</h3>
-            <button
-              onClick={() => openTestDriveDialog()}
-              className="text-xs text-primary font-medium hover:underline flex items-center gap-1"
-            >
-              <Plus className="h-3 w-3" /> Book test drive
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => openTestDriveDialog()}
+                className="text-xs text-primary font-medium hover:underline flex items-center gap-1"
+              >
+                <Plus className="h-3 w-3" /> Book test drive
+              </button>
+            )}
           </div>
           {buyer.purchases.length === 0 && buyer.testDrives.length === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">No test drives or purchases yet.</p>
@@ -536,12 +554,14 @@ export default function BuyerDetail() {
       <div className="stat-card">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-semibold">Communication History</h3>
-          <button
-            onClick={() => openCommDialog()}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-sm font-medium hover:opacity-90"
-          >
-            <Plus className="h-4 w-4" /> Log communication
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => openCommDialog()}
+              className="flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-sm font-medium hover:opacity-90"
+            >
+              <Plus className="h-4 w-4" /> Log communication
+            </button>
+          )}
         </div>
         {buyer.communications.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">No communications logged yet.</p>
@@ -559,12 +579,16 @@ export default function BuyerDetail() {
                   </p>
                 </div>
                 <div className="flex gap-2 opacity-60 group-hover:opacity-100">
-                  <button onClick={() => openCommDialog(c)} className="text-xs text-muted-foreground hover:text-primary">
-                    <Edit className="h-3.5 w-3.5" />
-                  </button>
-                  <button onClick={() => removeCommEntry(c.id)} className="text-xs text-red-600 hover:text-red-700">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {canEdit && (
+                    <button onClick={() => openCommDialog(c)} className="text-xs text-muted-foreground hover:text-primary">
+                      <Edit className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button onClick={() => removeCommEntry(c.id)} className="text-xs text-red-600 hover:text-red-700">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

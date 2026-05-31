@@ -10,6 +10,7 @@ import {
   ALL_LEAD_SOURCES, ALL_LEAD_STATUSES, ClientLeadSource, ClientLeadStatus,
 } from "@/lib/lead-mapper";
 import { toast } from "@/hooks/use-toast";
+import { useCan } from "@/components/Can";
 
 const statuses: (ClientLeadStatus | "All")[] = ["All", ...ALL_LEAD_STATUSES];
 
@@ -45,6 +46,9 @@ export default function Leads() {
   const buyersQuery = useBuyers({});
   const vehiclesQuery = useVehicles({ limit: 100 });
   const staffQuery = useStaff();
+
+  const canEdit = useCan("Leads & Sales", "edit");
+  const canDelete = useCan("Leads & Sales", "delete");
 
   const [form, setForm] = useState({
     buyerId: "", vehicleId: "", source: "Website" as ClientLeadSource,
@@ -117,13 +121,15 @@ export default function Leads() {
           <h1 className="module-title">Leads & Sales</h1>
           <p className="text-muted-foreground text-sm">Track every enquiry through the sales pipeline</p>
         </div>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
-        >
-          {showAdd ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-          {showAdd ? "Cancel" : "New Lead"}
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowAdd(!showAdd)}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
+          >
+            {showAdd ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {showAdd ? "Cancel" : "New Lead"}
+          </button>
+        )}
       </div>
 
       {showAdd && (

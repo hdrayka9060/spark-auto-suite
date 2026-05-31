@@ -22,6 +22,8 @@ export interface ServerSale {
   buyerEmail: string;
   salePrice: number;
   costPrice: number;
+  /** Reconditioning spend snapshotted from the vehicle (cost-of-goods). */
+  totalSpend?: number;
   discount: number;
   /** How much of (salePrice − discount) the buyer has actually paid. */
   amountPaid?: number;
@@ -48,6 +50,8 @@ export interface ServerExpense {
 export interface FinancialSummary {
   totalRevenue: number;
   totalCost: number;
+  /** Σ reconditioning spend across sold vehicles (part of the cost basis). */
+  totalSpend: number;
   totalExpenses: number;
   totalProfit: number;
   totalSales: number;
@@ -65,6 +69,8 @@ export interface SaleLedgerEntry {
   discount: number;
   /** Dealer's acquisition cost — drives per-row gross margin. */
   costPrice: number;
+  /** Reconditioning spend folded into the cost basis. */
+  totalSpend: number;
   /** What the buyer has actually paid against the net (salePrice − discount). */
   amountPaid: number;
   /** Remaining receivable for non-paid sales — already clamped at zero. */
@@ -90,6 +96,8 @@ export interface PLBucket {
   monthIndex: number; // 1..12 (from mongo $month)
   revenue: number;
   cost: number;
+  /** Reconditioning spend for the month (part of cost basis). */
+  spend: number;
   expenses: number;
   profit: number;
 }
@@ -156,6 +164,7 @@ export function toClientSale(s: ServerSale): SaleLedgerEntry {
     amount: s.salePrice,
     discount: s.discount,
     costPrice: s.costPrice ?? 0,
+    totalSpend: s.totalSpend ?? 0,
     amountPaid,
     outstanding,
     date: s.saleDate?.slice(0, 10) ?? s.createdAt?.slice(0, 10),
@@ -182,7 +191,7 @@ export function toClientExpense(e: ServerExpense): ExpenseEntry {
  * Convert to client-friendly buckets aligned by month name.
  */
 export function toClientProfitLoss(server: {
-  sales: { _id: number; revenue: number; cost: number; count: number }[];
+  sales: { _id: number; revenue: number; cost: number; spend?: number; count: number }[];
   expenses: { _id: number; total: number }[];
   summary: FinancialSummary;
 }): ProfitLossReport {
@@ -192,23 +201,26 @@ export function toClientProfitLoss(server: {
   const months = [...monthSet].sort((a, b) => a - b);
 
   // Profit is computed the same way the Accounting "Profit" KPI tile shows
-  // it: revenue − cost-of-vehicles (gross margin), NOT revenue − cost − expenses.
-  // Expenses are surfaced in the chart on their own bar so the dealer can
-  // eyeball overhead vs margin, but they DON'T reduce the profit figure —
-  // matches AccountingService.getSummary's `totalProfit: revenue − cost`.
+  // it: revenue − cost basis (acquisition cost + reconditioning spend) = gross
+  // margin, NOT revenue − cost − operating expenses. Operating expenses are
+  // surfaced on their own bar so the dealer can eyeball overhead vs margin,
+  // but they DON'T reduce the profit figure — matches
+  // AccountingService.getSummary's `totalProfit: revenue − cost − spend`.
   const buckets: PLBucket[] = months.map((m) => {
     const sale = salesByMonth.get(m);
     const expense = expensesByMonth.get(m);
     const revenue = sale?.revenue ?? 0;
     const cost = sale?.cost ?? 0;
+    const spend = sale?.spend ?? 0;
     const expenses = expense?.total ?? 0;
     return {
       month: MONTH_NAMES[m - 1] ?? `M${m}`,
       monthIndex: m,
       revenue,
       cost,
+      spend,
       expenses,
-      profit: revenue - cost,
+      profit: revenue - cost - spend,
     };
   });
 

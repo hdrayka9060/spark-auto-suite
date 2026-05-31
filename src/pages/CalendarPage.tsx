@@ -651,7 +651,7 @@ export default function CalendarPage() {
           Replaces the prior "click-to-delete" misbehaviour. Click an event
           on any view → opens this dialog. Edit / Delete are inside. */}
       <Dialog open={activeEvent !== null} onOpenChange={(open) => !open && setDetailEventId(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
           {activeEvent && (
             <EventDetailContent
               event={activeEvent}
@@ -1227,7 +1227,7 @@ function EventDetailContent({
         </div>
       </DialogHeader>
 
-      <div className="space-y-4">
+      <div className="space-y-4 flex-1 min-h-0 overflow-y-auto">
         {/* When + where in a single block — the headline scheduling data. */}
         <div className="text-sm space-y-1.5 border rounded-lg p-3 bg-muted/20">
           <p className="flex items-start gap-2">
@@ -1385,7 +1385,7 @@ function DetailRow({
       <dt className="text-xs font-medium text-muted-foreground sm:w-24 sm:shrink-0">
         {label}
       </dt>
-      <dd className="flex-1">
+      <dd className="flex-1 min-w-0 break-words">
         {value ? (
           <span className="text-foreground">{value}</span>
         ) : (
@@ -1414,15 +1414,17 @@ function ParticipantRow({
 }) {
   const Icon = PARTICIPANT_ICON[participant.userType];
   return (
-    <li className="flex items-center justify-between text-sm border rounded-md px-2 py-1.5">
-      <span className="flex items-center gap-2 truncate">
+    <li className="flex items-center justify-between gap-2 text-sm border rounded-md px-2 py-1.5">
+      <span className="flex items-center gap-2 min-w-0 flex-1">
         <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         <UserTypePill type={participant.userType} />
-        <span className="truncate">{participant.name}</span>
-        {participant.email && (
-          <span className="text-xs text-muted-foreground truncate hidden sm:inline">· {participant.email}</span>
-        )}
-        <span className="text-[10px] uppercase text-muted-foreground tracking-wide ml-1">
+        <span className="truncate min-w-0">
+          {participant.name}
+          {participant.email && (
+            <span className="text-xs text-muted-foreground hidden sm:inline"> · {participant.email}</span>
+          )}
+        </span>
+        <span className="text-[10px] uppercase text-muted-foreground tracking-wide ml-1 shrink-0">
           {participant.status}
         </span>
       </span>
@@ -1430,7 +1432,7 @@ function ParticipantRow({
         <button
           onClick={onRemove}
           disabled={busy}
-          className="text-muted-foreground hover:text-red-600 p-1 disabled:opacity-50"
+          className="text-muted-foreground hover:text-red-600 p-1 disabled:opacity-50 shrink-0"
           title="Remove participant"
           type="button"
         >

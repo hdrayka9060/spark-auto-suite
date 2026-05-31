@@ -4,18 +4,23 @@ import {
   ArrowLeft, Edit, Trash2, CheckCircle2, ChevronLeft, ChevronRight,
   Eye, MessageSquare, Car, Heart, Calendar, Gauge, Fuel, Settings as SettingsIcon,
   Palette, Hash, Users, History, Activity, Loader2, AlertCircle, Save, X, Upload,
+  Receipt, Plus,
 } from "lucide-react";
 import {
   useDeleteVehicle, useDeleteVehicleImage, useUpdateVehicle, useUploadVehicleImages,
   useVehicle, useVehicleActivityLogs, useVehicleTestDriveCount,
+  useAddVehicleSpend, useUpdateVehicleSpend, useDeleteVehicleSpend,
 } from "@/hooks/api/use-vehicles";
 import { useCreateSale } from "@/hooks/api/use-accounting";
 import { useBuyers } from "@/hooks/api/use-buyers";
 import { useLeads } from "@/hooks/api/use-leads";
+import { useCan } from "@/components/Can";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { ApiError, fileUrl } from "@/lib/api";
 import {
-  ALL_BODY_TYPES, ALL_VEHICLE_STATUSES, ServerHosting, VEHICLE_STATUS_BADGE_CLASS,
-  Vehicle, normalizeFuelType, normalizeTransmission, vehicleStatusToServer,
+  ALL_BODY_TYPES, ALL_VEHICLE_STATUSES, ServerHosting, SPEND_CATEGORIES,
+  VEHICLE_STATUS_BADGE_CLASS,
+  Vehicle, VehicleSpend, normalizeFuelType, normalizeTransmission, vehicleStatusToServer,
 } from "@/lib/vehicle-mapper";
 import { ClientPaymentStatus } from "@/lib/accounting-mapper";
 import { toast } from "@/hooks/use-toast";
@@ -34,7 +39,7 @@ const OTHER = "__other__";
 
 const statusClass = VEHICLE_STATUS_BADGE_CLASS;
 
-type TabKey = "overview" | "details" | "history" | "activity";
+type TabKey = "overview" | "details" | "spends" | "history" | "activity";
 
 export default function VehicleDetail() {
   const { id = "" } = useParams();
@@ -47,8 +52,27 @@ export default function VehicleDetail() {
   const deleteImage = useDeleteVehicleImage(id);
   const logsQuery = useVehicleActivityLogs(id);
   const testDriveCountQuery = useVehicleTestDriveCount(id);
+  const addSpend = useAddVehicleSpend(id);
+  const updateSpendMut = useUpdateVehicleSpend(id);
+  const deleteSpend = useDeleteVehicleSpend(id);
+  const canEditInventory = useCan("Inventory", "edit");
+  const canDeleteInventory = useCan("Inventory", "delete");
+  const confirm = useConfirm();
 
   const [tab, setTab] = useState<TabKey>("overview");
+  const [spendForm, setSpendForm] = useState({
+    amount: "",
+    category: "Repair" as string,
+    description: "",
+    date: new Date().toISOString().slice(0, 10),
+  });
+  const [editingSpend, setEditingSpend] = useState<VehicleSpend | null>(null);
+  const [editSpendForm, setEditSpendForm] = useState({
+    amount: "",
+    category: "Repair" as string,
+    description: "",
+    date: "",
+  });
   const [imageIdx, setImageIdx] = useState(0);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<{
@@ -125,6 +149,7 @@ export default function VehicleDetail() {
   const tabs: { key: TabKey; label: string; icon: typeof Eye }[] = [
     { key: "overview", label: "Overview", icon: Car },
     { key: "details", label: "Details", icon: SettingsIcon },
+    { key: "spends", label: "Spends", icon: Receipt },
     { key: "history", label: "History", icon: History },
     { key: "activity", label: "Activity", icon: Activity },
   ];
@@ -315,8 +340,85 @@ export default function VehicleDetail() {
     openSoldDialog();
   };
 
+  const submitSpend = async () => {
+    const amt = parseFloat(spendForm.amount);
+    if (!amt || amt <= 0) {
+      toast({ title: "Amount required", description: "Enter a spend amount greater than 0.", variant: "destructive" });
+      return;
+    }
+    try {
+      await addSpend.mutateAsync({
+        amount: amt,
+        category: spendForm.category,
+        description: spendForm.description || undefined,
+        date: spendForm.date || undefined,
+      });
+      toast({ title: "Spend added", description: `$${amt.toLocaleString()} · ${spendForm.category}` });
+      setSpendForm({ amount: "", category: "Repair", description: "", date: new Date().toISOString().slice(0, 10) });
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Could not add spend";
+      toast({ title: "Add failed", description: msg, variant: "destructive" });
+    }
+  };
+
+  const handleDeleteSpend = async (spendId: string) => {
+    const ok = await confirm({
+      title: "Remove this spend?",
+      description: "This can't be undone.",
+      confirmText: "Remove",
+    });
+    if (!ok) return;
+    try {
+      await deleteSpend.mutateAsync(spendId);
+      toast({ title: "Spend removed" });
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Could not remove spend";
+      toast({ title: "Delete failed", description: msg, variant: "destructive" });
+    }
+  };
+
+  const openEditSpend = (sp: VehicleSpend) => {
+    setEditSpendForm({
+      amount: String(sp.amount),
+      category: sp.category || "Repair",
+      description: sp.description || "",
+      date: sp.date || new Date().toISOString().slice(0, 10),
+    });
+    setEditingSpend(sp);
+  };
+
+  const submitEditSpend = async () => {
+    if (!editingSpend) return;
+    const amt = parseFloat(editSpendForm.amount);
+    if (!amt || amt <= 0) {
+      toast({ title: "Amount required", description: "Enter a spend amount greater than 0.", variant: "destructive" });
+      return;
+    }
+    try {
+      await updateSpendMut.mutateAsync({
+        spendId: editingSpend.id,
+        input: {
+          amount: amt,
+          category: editSpendForm.category,
+          description: editSpendForm.description || "",
+          date: editSpendForm.date || undefined,
+        },
+      });
+      toast({ title: "Spend updated", description: `$${amt.toLocaleString()} · ${editSpendForm.category}` });
+      setEditingSpend(null);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Could not update spend";
+      toast({ title: "Update failed", description: msg, variant: "destructive" });
+    }
+  };
+
   const handleDelete = async () => {
-    if (!window.confirm(`Delete ${vehicle.title}? This is a soft delete and can be recovered.`)) return;
+    const ok = await confirm({
+      title: `Delete ${vehicle.title}?`,
+      description: "This is a soft delete and can be recovered.",
+      confirmText: "Delete",
+    });
+    if (!ok) return;
     try {
       await deleteVehicle.mutateAsync(vehicle.id);
       toast({ title: "Vehicle deleted", description: vehicle.title });
@@ -330,7 +432,12 @@ export default function VehicleDetail() {
   const handleDeletePhoto = async (photoPath: string) => {
     // Don't try to delete the emoji placeholder.
     if (!photoPath.includes("/")) return;
-    if (!window.confirm("Remove this photo? The file stays on disk; it just won't show in the gallery anymore.")) return;
+    const ok = await confirm({
+      title: "Remove this photo?",
+      description: "The file stays on disk; it just won't show in the gallery anymore.",
+      confirmText: "Remove",
+    });
+    if (!ok) return;
     try {
       await deleteImage.mutateAsync(photoPath);
       toast({ title: "Photo removed" });
@@ -388,28 +495,34 @@ export default function VehicleDetail() {
             </>
           ) : (
             <>
-              <button
-                onClick={startEdit}
-                className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
-              >
-                <Edit className="h-4 w-4" /> Edit Vehicle
-              </button>
-              <button
-                onClick={markAsSold}
-                disabled={vehicle.status === "Sold" || updateVehicle.isPending}
-                className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {updateVehicle.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                {vehicle.status === "Sold" ? "Sold" : "Mark as Sold"}
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleteVehicle.isPending}
-                className="flex items-center gap-2 bg-destructive text-destructive-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60"
-              >
-                {deleteVehicle.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                Delete
-              </button>
+              {canEditInventory && (
+                <>
+                  <button
+                    onClick={startEdit}
+                    className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
+                  >
+                    <Edit className="h-4 w-4" /> Edit Vehicle
+                  </button>
+                  <button
+                    onClick={markAsSold}
+                    disabled={vehicle.status === "Sold" || updateVehicle.isPending}
+                    className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {updateVehicle.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                    {vehicle.status === "Sold" ? "Sold" : "Mark as Sold"}
+                  </button>
+                </>
+              )}
+              {canDeleteInventory && (
+                <button
+                  onClick={handleDelete}
+                  disabled={deleteVehicle.isPending}
+                  className="flex items-center gap-2 bg-destructive text-destructive-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60"
+                >
+                  {deleteVehicle.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  Delete
+                </button>
+              )}
             </>
           )}
         </div>
@@ -444,15 +557,17 @@ export default function VehicleDetail() {
                 </div>
               </>
             )}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadImages.isPending}
-              className="absolute top-3 right-3 flex items-center gap-1.5 bg-card/90 backdrop-blur border rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
-              title="Upload up to 10 images"
-            >
-              {uploadImages.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-              {uploadImages.isPending ? "Uploading…" : "Upload"}
-            </button>
+            {canEditInventory && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadImages.isPending}
+                className="absolute top-3 right-3 flex items-center gap-1.5 bg-card/90 backdrop-blur border rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-60"
+                title="Upload up to 10 images"
+              >
+                {uploadImages.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                {uploadImages.isPending ? "Uploading…" : "Upload"}
+              </button>
+            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -476,7 +591,7 @@ export default function VehicleDetail() {
                     >
                       {isPath ? <img src={fileUrl(g)} alt="" className="w-full h-full object-cover" /> : g}
                     </button>
-                    {isPath && (
+                    {isPath && canEditInventory && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeletePhoto(g); }}
                         disabled={deleteImage.isPending}
@@ -516,7 +631,15 @@ export default function VehicleDetail() {
                     onChange={(e) => setEditForm({ ...editForm, status: e.target.value as Vehicle["status"] })}
                     className="border rounded-lg px-2 py-1 text-xs bg-background"
                   >
-                    {ALL_VEHICLE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {/* "Sold" is intentionally NOT selectable here — marking a
+                        vehicle sold must go through the "Mark as Sold" button so
+                        it routes through the unified createSale flow (buyer +
+                        sale record). We only keep "Sold" as an option when the
+                        vehicle is ALREADY sold, so it displays and the user can
+                        still revert it to another status from the edit form. */}
+                    {ALL_VEHICLE_STATUSES
+                      .filter((s) => s !== "Sold" || vehicle.status === "Sold")
+                      .map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                   <select
                     value={editForm.hosting}
@@ -579,6 +702,9 @@ export default function VehicleDetail() {
             ) : (
               <div className="space-y-1.5">
                 <PriceRow label="Cost Price" value={`$${(vehicle.costPrice ?? 0).toLocaleString()}`} />
+                {vehicle.totalSpend > 0 && (
+                  <PriceRow label="Spent (recond.)" value={`$${vehicle.totalSpend.toLocaleString()}`} />
+                )}
                 <PriceRow
                   label="Selling Price"
                   value={
@@ -598,18 +724,18 @@ export default function VehicleDetail() {
                     }
                   />
                 )}
-                {vehicle.status === "Sold" && (vehicle.costPrice ?? 0) > 0 && (vehicle.soldAt ?? 0) > 0 && (
+                {vehicle.status === "Sold" && (vehicle.soldAt ?? 0) > 0 && (
                   <PriceRow
                     label="Gross Margin"
                     value={
                       <span
                         className={
-                          (vehicle.soldAt - vehicle.costPrice) >= 0
+                          (vehicle.soldAt - (vehicle.costPrice ?? 0) - vehicle.totalSpend) >= 0
                             ? "text-emerald-700 font-semibold"
                             : "text-red-600 font-semibold"
                         }
                       >
-                        ${(vehicle.soldAt - vehicle.costPrice).toLocaleString()}
+                        ${(vehicle.soldAt - (vehicle.costPrice ?? 0) - vehicle.totalSpend).toLocaleString()}
                       </span>
                     }
                   />
@@ -753,6 +879,154 @@ export default function VehicleDetail() {
               )
             }
           />
+        </div>
+      )}
+
+      {tab === "spends" && (
+        <div className="space-y-6">
+          {/* Summary */}
+          <div className="stat-card flex flex-wrap items-center justify-between gap-4">
+            <div className="max-w-xl">
+              <h3 className="font-display font-semibold">Money Spent on this Vehicle</h3>
+              <p className="text-sm text-muted-foreground">
+                Repairs, service, parts, etc. recorded before the sale. These are added to the
+                vehicle's cost basis — once sold, profit = sold price − cost price − total spend.
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold font-display">${vehicle.totalSpend.toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                Total spend · {vehicle.spends.length} {vehicle.spends.length === 1 ? "entry" : "entries"}
+              </div>
+            </div>
+          </div>
+
+          {/* Add form (hidden when sold) / sold banner */}
+          {vehicle.status === "Sold" ? (
+            <div className="stat-card border-amber-200 bg-amber-50 text-amber-800 text-sm flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>This vehicle is sold — its spend total is locked into the sale, so new spends can't be added. You can still remove an entry below to correct a mistake (the sale's cost updates automatically).</span>
+            </div>
+          ) : canEditInventory ? (
+            <div className="stat-card space-y-3">
+              <h4 className="font-medium text-sm">Add a spend</h4>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div>
+                  <label className="text-[11px] text-muted-foreground">Amount ($) *</label>
+                  <input
+                    type="number"
+                    value={spendForm.amount}
+                    onChange={(e) => setSpendForm({ ...spendForm, amount: e.target.value })}
+                    placeholder="500"
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-muted-foreground">Category</label>
+                  <select
+                    value={spendForm.category}
+                    onChange={(e) => setSpendForm({ ...spendForm, category: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                  >
+                    {SPEND_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] text-muted-foreground">Date</label>
+                  <input
+                    type="date"
+                    value={spendForm.date}
+                    onChange={(e) => setSpendForm({ ...spendForm, date: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                  />
+                </div>
+                <div className="lg:col-span-2">
+                  <label className="text-[11px] text-muted-foreground">Description</label>
+                  <input
+                    value={spendForm.description}
+                    onChange={(e) => setSpendForm({ ...spendForm, description: e.target.value })}
+                    placeholder="e.g. New brake pads + labor"
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  onClick={submitSpend}
+                  disabled={addSpend.isPending}
+                  className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60"
+                >
+                  {addSpend.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Add Spend
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Spends table */}
+          <div className="stat-card">
+            {vehicle.spends.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No spends recorded yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-muted-foreground uppercase tracking-wide border-b">
+                      <th className="py-2 pr-4 font-medium">Date</th>
+                      <th className="py-2 pr-4 font-medium">Category</th>
+                      <th className="py-2 pr-4 font-medium">Description</th>
+                      <th className="py-2 pr-4 font-medium">Added by</th>
+                      <th className="py-2 pr-4 font-medium text-right">Amount</th>
+                      {(canEditInventory || canDeleteInventory) && <th className="py-2 font-medium text-right" />}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vehicle.spends.map((sp) => (
+                      <tr key={sp.id} className="border-b border-border/50 last:border-0">
+                        <td className="py-2 pr-4 whitespace-nowrap text-muted-foreground">{sp.date || "—"}</td>
+                        <td className="py-2 pr-4"><span className="status-badge bg-muted text-foreground">{sp.category}</span></td>
+                        <td className="py-2 pr-4">{sp.description || "—"}</td>
+                        <td className="py-2 pr-4 text-muted-foreground">{sp.by || "—"}</td>
+                        <td className="py-2 pr-4 text-right font-medium">${sp.amount.toLocaleString()}</td>
+                        {(canEditInventory || canDeleteInventory) && (
+                          <td className="py-2 text-right">
+                            <div className="flex items-center gap-1 justify-end">
+                              {canEditInventory && (
+                                <button
+                                  onClick={() => openEditSpend(sp)}
+                                  title="Edit spend"
+                                  className="text-muted-foreground hover:text-primary hover:bg-muted rounded p-1"
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </button>
+                              )}
+                              {canDeleteInventory && (
+                                <button
+                                  onClick={() => handleDeleteSpend(sp.id)}
+                                  disabled={deleteSpend.isPending}
+                                  title="Remove spend"
+                                  className="text-destructive hover:bg-destructive/10 rounded p-1 disabled:opacity-50"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t">
+                      <td className="py-2 pr-4 font-medium" colSpan={4}>Total</td>
+                      <td className="py-2 pr-4 text-right font-bold">${vehicle.totalSpend.toLocaleString()}</td>
+                      {(canEditInventory || canDeleteInventory) && <td />}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -971,6 +1245,68 @@ export default function VehicleDetail() {
             >
               {createSale.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Mark sold & record sale
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Spend dialog */}
+      <Dialog open={Boolean(editingSpend)} onOpenChange={(o) => !o && setEditingSpend(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Spend</DialogTitle>
+            <DialogDescription>
+              Update the amount, category, date, or description. If the vehicle is already sold, the sale's cost basis updates automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] text-muted-foreground">Amount ($) *</label>
+              <input
+                type="number"
+                value={editSpendForm.amount}
+                onChange={(e) => setEditSpendForm({ ...editSpendForm, amount: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Category</label>
+              <select
+                value={editSpendForm.category}
+                onChange={(e) => setEditSpendForm({ ...editSpendForm, category: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+              >
+                {SPEND_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="text-[11px] text-muted-foreground">Date</label>
+              <input
+                type="date"
+                value={editSpendForm.date}
+                onChange={(e) => setEditSpendForm({ ...editSpendForm, date: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="text-[11px] text-muted-foreground">Description</label>
+              <input
+                value={editSpendForm.description}
+                onChange={(e) => setEditSpendForm({ ...editSpendForm, description: e.target.value })}
+                placeholder="e.g. New brake pads + labor"
+                className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <button onClick={() => setEditingSpend(null)} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
+            <button
+              onClick={submitEditSpend}
+              disabled={updateSpendMut.isPending}
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-60"
+            >
+              {updateSpendMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save changes
             </button>
           </DialogFooter>
         </DialogContent>

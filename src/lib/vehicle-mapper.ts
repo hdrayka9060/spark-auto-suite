@@ -93,6 +93,7 @@ export interface ServerVehicle {
   hosting: ServerHosting;
   features: string[];
   history: { field: string; value: string; changedAt: string; changedBy: string }[];
+  spends?: { _id: string; amount: number; category: string; description: string; date: string; by?: string }[];
   traffic: { views: number; clicks: number; inquiries: number; lastViewed?: string };
   addedBy?: { _id: string; firstName: string; lastName: string; email: string };
   seller?:
@@ -130,12 +131,40 @@ export interface Vehicle {
   engine: string;
   gallery: string[];
   history: { date: string; event: string; detail: string }[];
+  /** Reconditioning spends recorded before the sale (cost-of-goods). */
+  spends: VehicleSpend[];
+  /** Σ(spends.amount) — convenience for the Spends tab + cost-basis display. */
+  totalSpend: number;
   activity: { views: number; inquiries: number; testDrives: number; favorites: number };
   logs: { date: string; type: string; description: string }[];
   /** Display name of the seller this vehicle came from. "Self" = in-house / no SellerLead linked. */
   sellerName: string;
   /** Real SellerLead ObjectId for navigation; empty string when "Self". */
   sellerId: string;
+}
+
+/** One reconditioning spend recorded against a vehicle (client shape). */
+export interface VehicleSpend {
+  id: string;
+  amount: number;
+  category: string;
+  description: string;
+  date: string; // YYYY-MM-DD
+  by: string;
+}
+
+/** Categories offered by the Add Spend form. Stored verbatim on the backend. */
+export const SPEND_CATEGORIES = [
+  "Repair", "Service", "Parts", "Transport", "Detailing", "Other",
+] as const;
+export type SpendCategory = typeof SPEND_CATEGORIES[number];
+
+/** Form payload from the Add Spend dialog. */
+export interface VehicleSpendInput {
+  amount: number;
+  category?: string;
+  description?: string;
+  date?: string; // YYYY-MM-DD
 }
 
 /** Form payload from the "Add Vehicle" UI. */
@@ -283,6 +312,15 @@ export function toClientVehicle(s: ServerVehicle): Vehicle {
       event: `Updated ${h.field}`,
       detail: `New value: ${h.value}`,
     })),
+    spends: (s.spends ?? []).map((sp) => ({
+      id: sp._id,
+      amount: sp.amount ?? 0,
+      category: sp.category || "Other",
+      description: sp.description ?? "",
+      date: sp.date?.slice(0, 10) ?? "",
+      by: sp.by ?? "",
+    })),
+    totalSpend: (s.spends ?? []).reduce((acc, sp) => acc + (sp.amount ?? 0), 0),
     activity: {
       views: s.traffic?.views ?? 0,
       inquiries: s.traffic?.inquiries ?? 0,

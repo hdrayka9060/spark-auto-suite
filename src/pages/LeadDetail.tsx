@@ -15,6 +15,8 @@ import {
   ALL_LEAD_CHANNELS, ALL_LEAD_STATUSES, ClientLeadChannel, ClientLeadStatus, LeadLogEntry,
 } from "@/lib/lead-mapper";
 import { toast } from "@/hooks/use-toast";
+import { useCan } from "@/components/Can";
+import { useConfirm } from "@/components/ConfirmDialog";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -69,6 +71,9 @@ export default function LeadDetail() {
   const deleteLog = useDeleteLeadLog(id ?? "");
   const staffQuery = useStaff();
   const vehiclesQuery = useVehicles({ limit: 100 });
+  const canEdit = useCan("Leads & Sales", "edit");
+  const canDelete = useCan("Leads & Sales", "delete");
+  const confirm = useConfirm();
 
   const [status, setStatus] = useState<ClientLeadStatus>("New");
   const [assigneeId, setAssigneeId] = useState<string>("");
@@ -283,8 +288,13 @@ export default function LeadDetail() {
     }
   };
 
-  const handleDelete = () => {
-    if (!window.confirm("Soft-delete this lead?")) return;
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: "Soft-delete this lead?",
+      description: "It can be recovered. Any linked sale stays unless the lead was closed.",
+      confirmText: "Delete",
+    });
+    if (!ok) return;
     // Navigate first; the mutation strips the row from cached lists in its
     // onMutate, so /leads renders without the deleted row the moment it
     // mounts. The HTTP request flies in the background — the rollback in
@@ -370,14 +380,16 @@ export default function LeadDetail() {
         </div>
         <div className="flex items-center gap-2">
           <span className={`status-badge ${statusColors[lead.status]}`}>{lead.status}</span>
-          <button
-            onClick={handleDelete}
-            disabled={deleteLead.isPending}
-            className="flex items-center gap-2 bg-destructive text-destructive-foreground px-3 py-1.5 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60"
-          >
-            {deleteLead.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-            Delete
-          </button>
+          {canDelete && (
+            <button
+              onClick={handleDelete}
+              disabled={deleteLead.isPending}
+              className="flex items-center gap-2 bg-destructive text-destructive-foreground px-3 py-1.5 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60"
+            >
+              {deleteLead.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Delete
+            </button>
+          )}
         </div>
       </div>
 
@@ -409,7 +421,7 @@ export default function LeadDetail() {
           <h3 className="font-display font-semibold text-sm uppercase text-muted-foreground tracking-wide">Update Lead</h3>
           <div>
             <label className="text-xs text-muted-foreground">Status</label>
-            <Select value={status} onValueChange={(v) => setStatus(v as ClientLeadStatus)}>
+            <Select value={status} onValueChange={(v) => setStatus(v as ClientLeadStatus)} disabled={!canEdit}>
               <SelectTrigger className="w-full mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {ALL_LEAD_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
@@ -421,6 +433,7 @@ export default function LeadDetail() {
             <Select
               value={assigneeId || NONE}
               onValueChange={(v) => setAssigneeId(v === NONE ? "" : v)}
+              disabled={!canEdit}
             >
               <SelectTrigger className="w-full mt-1"><SelectValue placeholder="Unassigned" /></SelectTrigger>
               <SelectContent className="max-h-72">
@@ -440,26 +453,31 @@ export default function LeadDetail() {
               value={askedPrice}
               onChange={(e) => setAskedPrice(e.target.value)}
               placeholder="0"
-              className="w-full mt-1 border rounded-lg px-3 py-2 text-sm bg-background"
+              disabled={!canEdit}
+              className="w-full mt-1 border rounded-lg px-3 py-2 text-sm bg-background disabled:opacity-60"
             />
           </div>
-          <button
-            onClick={saveChanges}
-            disabled={!hasChanges || updateLead.isPending}
-            className="w-full flex items-center justify-center gap-2 bg-primary text-primary-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {updateLead.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save Changes
-          </button>
-          <button
-            onClick={() => {
-              setTdForm({ date: "", time: "10:00", assignedTo: assigneeId, notes: "" });
-              setTdDialogOpen(true);
-            }}
-            className="w-full flex items-center justify-center gap-2 bg-muted py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
-          >
-            <CalendarDays className="h-4 w-4" /> Book test drive
-          </button>
+          {canEdit && (
+            <>
+              <button
+                onClick={saveChanges}
+                disabled={!hasChanges || updateLead.isPending}
+                className="w-full flex items-center justify-center gap-2 bg-primary text-primary-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {updateLead.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save Changes
+              </button>
+              <button
+                onClick={() => {
+                  setTdForm({ date: "", time: "10:00", assignedTo: assigneeId, notes: "" });
+                  setTdDialogOpen(true);
+                }}
+                className="w-full flex items-center justify-center gap-2 bg-muted py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
+              >
+                <CalendarDays className="h-4 w-4" /> Book test drive
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -486,12 +504,14 @@ export default function LeadDetail() {
         <div className="stat-card">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-display font-semibold">Communication Log</h3>
-            <button
-              onClick={() => openLogDialog()}
-              className="flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-sm font-medium hover:opacity-90"
-            >
-              <Plus className="h-4 w-4" /> Log communication
-            </button>
+            {canEdit && (
+              <button
+                onClick={() => openLogDialog()}
+                className="flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-sm font-medium hover:opacity-90"
+              >
+                <Plus className="h-4 w-4" /> Log communication
+              </button>
+            )}
           </div>
           {lead.log.length === 0 ? (
             <p className="text-sm text-muted-foreground py-3">No communications logged yet.</p>
@@ -516,12 +536,16 @@ export default function LeadDetail() {
                     )}
                   </div>
                   <div className="flex gap-2 opacity-60 group-hover:opacity-100">
-                    <button onClick={() => openLogDialog(c)} className="text-xs text-muted-foreground hover:text-primary">
-                      <Edit className="h-3.5 w-3.5" />
-                    </button>
-                    <button onClick={() => setPendingDeleteLog(c)} className="text-xs text-red-600 hover:text-red-700">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    {canEdit && (
+                      <button onClick={() => openLogDialog(c)} className="text-xs text-muted-foreground hover:text-primary">
+                        <Edit className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button onClick={() => setPendingDeleteLog(c)} className="text-xs text-red-600 hover:text-red-700">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

@@ -7,6 +7,7 @@ import {
   ServerVehicle,
   Vehicle,
   VehicleFormInput,
+  VehicleSpendInput,
   toClientVehicle,
   toServerCreatePayload,
   vehicleStatusToServer,
@@ -205,6 +206,76 @@ export function useUploadVehicleImages(id: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+    },
+  });
+}
+
+// ── Vehicle spends (reconditioning cost-of-goods) ─────────────────────────
+
+/** Add a spend to a vehicle. Backend rejects if the vehicle is already sold. */
+export function useAddVehicleSpend(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: VehicleSpendInput): Promise<Vehicle> => {
+      const updated = await api<ServerVehicle>(`/inventory/${id}/spends`, {
+        method: "POST",
+        body: {
+          amount: input.amount,
+          category: input.category,
+          description: input.description,
+          date: input.date,
+        },
+      });
+      return toClientVehicle(updated);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+/** Edit a spend. Re-syncs the sale if the vehicle is already sold. */
+export function useUpdateVehicleSpend(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ spendId, input }: { spendId: string; input: VehicleSpendInput }): Promise<Vehicle> => {
+      const updated = await api<ServerVehicle>(`/inventory/${id}/spends/${spendId}`, {
+        method: "PATCH",
+        body: {
+          amount: input.amount,
+          category: input.category,
+          description: input.description,
+          date: input.date,
+        },
+      });
+      return toClientVehicle(updated);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      // Editing an amount on an already-sold vehicle re-syncs its Sale row.
+      qc.invalidateQueries({ queryKey: ["accounting"] });
+    },
+  });
+}
+
+/** Delete a spend by its subdocument id. Re-syncs the sale if already sold. */
+export function useDeleteVehicleSpend(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (spendId: string): Promise<Vehicle> => {
+      const updated = await api<ServerVehicle>(`/inventory/${id}/spends/${spendId}`, {
+        method: "DELETE",
+      });
+      return toClientVehicle(updated);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      // Deleting a spend on an already-sold vehicle re-syncs its Sale row, so
+      // the accounting ledger + P&L need to refresh too.
+      qc.invalidateQueries({ queryKey: ["accounting"] });
     },
   });
 }

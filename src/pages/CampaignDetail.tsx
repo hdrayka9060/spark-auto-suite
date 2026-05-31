@@ -5,6 +5,7 @@ import { useCampaign, useRefreshCampaignMetrics, useUpdateCampaign } from "@/hoo
 import { ApiError } from "@/lib/api";
 import { ClientCampaignStatus } from "@/lib/campaign-mapper";
 import { toast } from "@/hooks/use-toast";
+import { useCan } from "@/components/Can";
 
 const statusColors: Record<ClientCampaignStatus, string> = {
   Draft: "bg-gray-100 text-gray-700",
@@ -19,6 +20,7 @@ export default function CampaignDetail() {
   const campaignQuery = useCampaign(id);
   const updateCampaign = useUpdateCampaign(id ?? "");
   const refreshMetrics = useRefreshCampaignMetrics(id ?? "");
+  const canEdit = useCan("Digital Marketing", "edit");
 
   if (campaignQuery.isLoading) {
     return (
@@ -88,30 +90,32 @@ export default function CampaignDetail() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`status-badge ${statusColors[c.status]}`}>{c.status}</span>
-          {c.status === "Draft" && (
+          {canEdit && c.status === "Draft" && (
             <button onClick={() => setStatus("Active")} disabled={updateCampaign.isPending} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 disabled:opacity-60">
               <Play className="h-3.5 w-3.5" /> Activate
             </button>
           )}
-          {c.status === "Active" && (
+          {canEdit && c.status === "Active" && (
             <button onClick={() => setStatus("Paused")} disabled={updateCampaign.isPending} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 disabled:opacity-60">
               <Pause className="h-3.5 w-3.5" /> Pause
             </button>
           )}
-          {c.status === "Paused" && (
+          {canEdit && c.status === "Paused" && (
             <button onClick={() => setStatus("Active")} disabled={updateCampaign.isPending} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 disabled:opacity-60">
               <Play className="h-3.5 w-3.5" /> Resume
             </button>
           )}
-          {(c.status === "Active" || c.status === "Paused") && (
+          {canEdit && (c.status === "Active" || c.status === "Paused") && (
             <button onClick={() => setStatus("Completed")} disabled={updateCampaign.isPending} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-60">
               <CheckCircle className="h-3.5 w-3.5" /> Complete
             </button>
           )}
-          <button onClick={doRefresh} disabled={refreshMetrics.isPending} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-card border rounded-lg hover:bg-muted disabled:opacity-60">
-            {refreshMetrics.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            Refresh Metrics
-          </button>
+          {canEdit && (
+            <button onClick={doRefresh} disabled={refreshMetrics.isPending} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-card border rounded-lg hover:bg-muted disabled:opacity-60">
+              {refreshMetrics.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Refresh Metrics
+            </button>
+          )}
         </div>
       </div>
 

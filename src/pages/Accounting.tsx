@@ -18,6 +18,7 @@ import {
   ClientPaymentStatus, ExpenseEntry, SaleLedgerEntry, groupExpensesByCategory,
 } from "@/lib/accounting-mapper";
 import { toast } from "@/hooks/use-toast";
+import { useCan } from "@/components/Can";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -84,6 +85,9 @@ export default function Accounting() {
   const vehiclesQuery = useVehicles({ limit: 100 });
   const leadsQuery = useLeads();
   const buyersQuery = useBuyers();
+
+  const canEdit = useCan("Accounting", "edit");
+  const canDelete = useCan("Accounting", "delete");
 
   const expenseList = expensesQuery.data?.data ?? [];
   const expenseBreakdown = useMemo(() => groupExpensesByCategory(expenseList), [expenseList]);
@@ -371,12 +375,12 @@ export default function Accounting() {
       const s = String(v ?? "");
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const header = "Date,Invoice,Vehicle,Buyer,Sale Price,Discount,Cost Price,Margin,Paid,Outstanding,Method,Status,Notes";
+    const header = "Date,Invoice,Vehicle,Buyer,Sale Price,Discount,Cost Price,Spend,Margin,Paid,Outstanding,Method,Status,Notes";
     const rows = sales.map((s) => {
-      const margin = Math.max(0, s.amount - s.discount) - s.costPrice;
+      const margin = Math.max(0, s.amount - s.discount) - s.costPrice - s.totalSpend;
       return [
         s.date, s.id.slice(-6), s.vehicleTitle, s.buyerName,
-        s.amount, s.discount, s.costPrice, margin,
+        s.amount, s.discount, s.costPrice, s.totalSpend, margin,
         s.amountPaid, s.outstanding, s.paymentMethod, s.paymentStatus, s.notes,
       ].map(esc).join(",");
     });
@@ -466,20 +470,24 @@ export default function Accounting() {
               setRangeEnd(endDate);
             }}
           />
-          <button
-            onClick={() => { setShowAddExpense(!showAddExpense); setShowAddSale(false); }}
-            className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
-          >
-            {showAddExpense ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            {showAddExpense ? "Cancel" : "Add Expense"}
-          </button>
-          <button
-            onClick={() => { setShowAddSale(!showAddSale); setShowAddExpense(false); }}
-            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
-          >
-            {showAddSale ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            {showAddSale ? "Cancel" : "Record Sale"}
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => { setShowAddExpense(!showAddExpense); setShowAddSale(false); }}
+              className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
+            >
+              {showAddExpense ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              {showAddExpense ? "Cancel" : "Add Expense"}
+            </button>
+          )}
+          {canEdit && (
+            <button
+              onClick={() => { setShowAddSale(!showAddSale); setShowAddExpense(false); }}
+              className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
+            >
+              {showAddSale ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              {showAddSale ? "Cancel" : "Record Sale"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -700,20 +708,24 @@ export default function Accounting() {
                     </div>
                     <span className="text-sm font-medium whitespace-nowrap">{formatMoney(e.amount)}</span>
                     <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100">
-                      <button
-                        onClick={() => openEditExpense(e)}
-                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary"
-                        title="Edit"
-                      >
-                        <Edit className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setPendingDeleteExpense(e)}
-                        className="p-1 rounded hover:bg-red-50 text-red-600"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => openEditExpense(e)}
+                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary"
+                          title="Edit"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => setPendingDeleteExpense(e)}
+                          className="p-1 rounded hover:bg-red-50 text-red-600"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </li>
                 ))}
@@ -749,6 +761,7 @@ export default function Accounting() {
                 <th>Buyer</th>
                 <th>Sale</th>
                 <th>Cost</th>
+                <th>Spend</th>
                 <th>Margin</th>
                 <th>Paid</th>
                 <th>Outstanding</th>
@@ -761,7 +774,8 @@ export default function Accounting() {
             <tbody>
               {(salesQuery.data?.data ?? []).map((s) => {
                 const net = Math.max(0, s.amount - s.discount);
-                const margin = net - s.costPrice;
+                const margin = net - s.costPrice - s.totalSpend;
+                const hasCostBasis = s.costPrice > 0 || s.totalSpend > 0;
                 return (
                 <tr key={s.id} className="group">
                   <td className="font-mono text-xs">{s.id.slice(-6)}</td>
@@ -772,12 +786,13 @@ export default function Accounting() {
                     {s.discount > 0 && <span className="text-xs text-emerald-600 ml-1">-${s.discount.toLocaleString()}</span>}
                   </td>
                   <td className="text-sm">${s.costPrice.toLocaleString()}</td>
+                  <td className="text-sm">{s.totalSpend > 0 ? `$${s.totalSpend.toLocaleString()}` : "—"}</td>
                   <td
                     className={`text-sm font-medium ${
-                      s.costPrice > 0 ? (margin >= 0 ? "text-emerald-700" : "text-red-600") : "text-muted-foreground"
+                      hasCostBasis ? (margin >= 0 ? "text-emerald-700" : "text-red-600") : "text-muted-foreground"
                     }`}
                   >
-                    {s.costPrice > 0 ? `$${margin.toLocaleString()}` : "—"}
+                    {hasCostBasis ? `$${margin.toLocaleString()}` : "—"}
                   </td>
                   <td className="text-sm">${s.amountPaid.toLocaleString()}</td>
                   <td className={`text-sm font-medium ${s.outstanding > 0 ? "text-red-600" : "text-emerald-600"}`}>
@@ -788,20 +803,24 @@ export default function Accounting() {
                   <td><span className={`status-badge ${statusColors[s.paymentStatus]}`}>{s.paymentStatus}</span></td>
                   <td>
                     <div className="flex items-center gap-1 justify-end opacity-60 group-hover:opacity-100">
-                      <button
-                        onClick={() => openEditSale(s)}
-                        className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-primary"
-                        title="Edit sale"
-                      >
-                        <Edit className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setPendingDeleteSale(s)}
-                        className="p-1.5 rounded hover:bg-red-50 text-red-600"
-                        title="Delete sale"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => openEditSale(s)}
+                          className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-primary"
+                          title="Edit sale"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => setPendingDeleteSale(s)}
+                          className="p-1.5 rounded hover:bg-red-50 text-red-600"
+                          title="Delete sale"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

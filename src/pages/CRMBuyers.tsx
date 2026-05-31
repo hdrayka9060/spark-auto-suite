@@ -6,6 +6,7 @@ import { useVehicles } from "@/hooks/api/use-vehicles";
 import { ApiError } from "@/lib/api";
 import { ClientBuyerStatus } from "@/lib/buyer-mapper";
 import { toast } from "@/hooks/use-toast";
+import { useCan } from "@/components/Can";
 
 const statusColors: Record<ClientBuyerStatus, string> = {
   Active: "bg-blue-100 text-blue-700",
@@ -27,6 +28,9 @@ export default function CRMBuyers() {
   const buyersQuery = useBuyers({ search, status: statusFilter });
   const createBuyer = useCreateBuyer();
   const vehiclesQuery = useVehicles({ limit: 100 });
+
+  const canEdit = useCan("CRM – Buyers", "edit");
+  const canDelete = useCan("CRM – Buyers", "delete");
 
   // Add-buyer form state
   const [form, setForm] = useState({
@@ -78,13 +82,15 @@ export default function CRMBuyers() {
           <h1 className="module-title">CRM – Buyers</h1>
           <p className="text-muted-foreground text-sm">Customers looking to buy vehicles</p>
         </div>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
-        >
-          {showAdd ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-          {showAdd ? "Cancel" : "New Buyer"}
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowAdd(!showAdd)}
+            className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
+          >
+            {showAdd ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {showAdd ? "Cancel" : "New Buyer"}
+          </button>
+        )}
       </div>
 
       {showAdd && (
