@@ -246,6 +246,9 @@ export default function BuyerDetail() {
         await createCalendarEvent.mutateAsync({
           title: `Test Drive — ${vehicleTitle}`,
           type: "testDrive",
+          // Test drives are in-person — explicit so the schema default
+          // doesn't drift and the detail dialog renders the right block.
+          meetingType: "physical",
           startDateTime: start.toISOString(),
           endDateTime: end.toISOString(),
           customerName: buyer.name,
@@ -253,6 +256,16 @@ export default function BuyerDetail() {
           customerPhone: buyer.phone,
           vehicleId: testDriveForm.vehicleId,
           assignedToId: testDriveForm.assignedTo || undefined,
+          // Add the buyer as a participant so the event shows up in the
+          // buyer's filtered "My calendar" view, not just the staff's.
+          participants: [
+            {
+              userType: "buyer" as const,
+              userId: buyer.id,
+              name: buyer.name,
+              email: buyer.email,
+            },
+          ],
           notes: testDriveForm.notes || undefined,
         });
       } catch (err) {

@@ -2,30 +2,9 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import {
-  LayoutDashboard, Car, Users, UserCheck, DollarSign, CreditCard,
-  Megaphone, Globe, CalendarDays, HeadphonesIcon, Settings, MessageSquare,
-  ChevronLeft, ChevronRight, Bell, Search, User, Target, Store, Shield, UserCog, LogOut
+  ChevronLeft, ChevronRight, Bell, Search, User, LogOut, Car,
 } from "lucide-react";
-
-
-const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/" },
-  { label: "Inventory", icon: Car, path: "/inventory" },
-  { label: "CRM – Sellers", icon: Users, path: "/crm-sellers" },
-  { label: "CRM – Buyers", icon: UserCheck, path: "/crm-buyers" },
-  { label: "Leads & Sales", icon: Target, path: "/leads" },
-  { label: "Accounting", icon: DollarSign, path: "/accounting" },
-  { label: "BHPH", icon: CreditCard, path: "/bhph" },
-  { label: "Digital Marketing", icon: Megaphone, path: "/marketing" },
-  { label: "Dealer Website", icon: Globe, path: "/dealer-website" },
-  { label: "Marketplace", icon: Store, path: "/marketplace" },
-  { label: "Calendar", icon: CalendarDays, path: "/calendar" },
-  { label: "Communication", icon: MessageSquare, path: "/communication" },
-  { label: "Support", icon: HeadphonesIcon, path: "/support" },
-  { label: "Staff", icon: UserCog, path: "/staff" },
-  { label: "Roles", icon: Shield, path: "/roles" },
-  { label: "Settings", icon: Settings, path: "/settings" },
-];
+import { navItems } from "@/config/nav";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -38,13 +17,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     : "Dealer";
   const roleLabel = user?.roleId?.name ?? "";
 
-  // Filter navigation items based on user permissions
-  const visibleNavItems = navItems.filter((item) => {
-    // Always show Dashboard (read-only)
-    if (item.label === "Dashboard") return true;
-    // For other modules, check if user has at least VIEW permission
-    return hasPermission(item.label, "view");
-  });
+  // Filter navigation items based on user permissions.
+  // EVERY module (including Dashboard) requires explicit `view` permission on
+  // its corresponding AppModule string — keep this loop generic so the matrix
+  // in /roles is the single source of truth for what's visible.
+  // The strings in `navItems[].label` MUST stay aligned with the AppModule
+  // enum on the backend (`src/common/permissions.ts`) — they are the lookup
+  // keys for the role.permissions[].module field. Beware the en-dash in
+  // "CRM – Sellers" / "CRM – Buyers".
+  // `hidden` retires a module from the sidebar (pending rebuild) regardless of
+  // permission; the rest is the normal permission filter.
+  const visibleNavItems = navItems.filter(
+    (item) => !item.hidden && hasPermission(item.label, "view"),
+  );
 
   const handleLogout = async () => {
     await logout();

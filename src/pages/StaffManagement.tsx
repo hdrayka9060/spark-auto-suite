@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Plus, Upload, Download, Search, Mail, Phone, Trash2, Pencil, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Plus, Upload, Search, Mail, Phone, Trash2, Pencil, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   useStaffList,
@@ -16,10 +16,12 @@ import {
   Staff,
   STAFF_STATUSES,
   STAFF_STATUS_BADGE_CLASS,
+  STAFF_CSV_COLUMNS,
   buildSampleStaffCsv,
   staffInitials,
   type ClientStaffStatus,
 } from "@/lib/staff-mapper";
+import Can, { useCan } from "@/components/Can";
 import {
   Dialog,
   DialogContent,
@@ -75,6 +77,14 @@ export default function StaffManagement() {
   const { state: authState } = useAuth();
   const currentUserId = authState.status === "authenticated" ? authState.user._id : null;
 
+  // Frontend-side permission gates. These match the backend @RequirePermission
+  // decorators on /users — Staff:edit covers invite/bulk-upload/update, and
+  // Staff:delete covers soft-delete. Without these flags we'd just bounce off
+  // the API with a 403 toast; surfacing the gate as visibility/disabled gives
+  // a cleaner UX.
+  const canEditStaff = useCan("Staff", "edit");
+  const canDeleteStaff = useCan("Staff", "delete");
+
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("All");
   const [statusFilter, setStatusFilter] = useState<"All" | ClientStaffStatus>("All");
@@ -93,15 +103,16 @@ export default function StaffManagement() {
     lastName: "",
     email: "",
     phone: "",
+    department: "",
     roleId: "",
   });
   const inviteMutation = useInviteUser();
 
   const resetInviteForm = () =>
-    setInviteForm({ firstName: "", lastName: "", email: "", phone: "", roleId: "" });
+    setInviteForm({ firstName: "", lastName: "", email: "", phone: "", department: "", roleId: "" });
 
   const submitInvite = async () => {
-    const { firstName, lastName, email, roleId, phone } = inviteForm;
+    const { firstName, lastName, email, roleId, phone, department } = inviteForm;
     if (!firstName.trim() || !lastName.trim() || !email.trim() || !roleId) {
       toast.error("First name, last name, email, and role are required");
       return;
@@ -112,6 +123,7 @@ export default function StaffManagement() {
         lastName: lastName.trim(),
         email: email.trim(),
         phone: phone.trim() || undefined,
+        department: department.trim() || undefined,
         roleId,
       });
       toast.success(`Invitation sent to ${email}`);
@@ -259,24 +271,31 @@ export default function StaffManagement() {
               e.target.value = "";
             }}
           />
+          {/* The bulk-import affordance is gated by Staff:edit — users
+              without that permission (Sales Manager, etc.) still see the list
+              but can't trigger uploads. Layout: a plain text link for the
+              sample CSV next to an outlined "Bulk CSV" button. */}
+          {canEditStaff && (
+          <>
           <button
             onClick={downloadSampleCsv}
-            className="flex items-center gap-2 bg-muted px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
-            title="Download a sample CSV with the expected columns"
+            className="text-sm text-muted-foreground hover:text-foreground hover:underline px-2 py-2"
+            title={`Columns: ${STAFF_CSV_COLUMNS.map((c) => c.key).join(", ")}`}
           >
-            <Download className="h-4 w-4" /> Sample CSV
+            Download sample CSV
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={bulkMutation.isPending}
-            className="flex items-center gap-2 bg-muted px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80 disabled:opacity-50"
+            className="flex items-center gap-2 border rounded-lg px-4 py-2 text-sm font-medium hover:bg-muted/60 disabled:opacity-50"
+            title="Upload a CSV to invite many staff at once"
           >
             {bulkMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Upload className="h-4 w-4" />
             )}
-            Bulk Upload
+            Bulk CSV
           </button>
           <button
             onClick={() => setInviteOpen(true)}
@@ -284,6 +303,8 @@ export default function StaffManagement() {
           >
             <Plus className="h-4 w-4" /> Invite Staff
           </button>
+          </>
+          )}
         </div>
       </div>
 
@@ -421,24 +442,33 @@ export default function StaffManagement() {
                     {s.lastActive}
                   </td>
                   <td className="text-right">
+                    {/* Hide the entire action cluster when the user has neither
+                        Staff:edit nor Staff:delete — keeps the column visually
+                        clean for read-only roles (e.g. Sales Manager). */}
+                    {(canEditStaff || (canDeleteStaff && !isSelf)) && (
                     <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => openEdit(s)}
-                        className="p-2 rounded hover:bg-muted"
-                        title="Edit"
-                      >
-                        <Pencil className="h-4 w-4 text-muted-foreground" />
-                      </button>
-                      {!isSelf && (
+                      <Can module="Staff" action="edit">
                         <button
-                          onClick={() => setDeleting(s)}
-                          className="p-2 rounded hover:bg-red-50"
-                          title="Remove"
+                          onClick={() => openEdit(s)}
+                          className="p-2 rounded hover:bg-muted"
+                          title="Edit"
                         >
-                          <Trash2 className="h-4 w-4 text-red-600" />
+                          <Pencil className="h-4 w-4 text-muted-foreground" />
                         </button>
+                      </Can>
+                      {!isSelf && (
+                        <Can module="Staff" action="delete">
+                          <button
+                            onClick={() => setDeleting(s)}
+                            className="p-2 rounded hover:bg-red-50"
+                            title="Remove"
+                          >
+                            <Trash2 className="h-4 w-4 text-red-600" />
+                          </button>
+                        </Can>
                       )}
                     </div>
+                    )}
                   </td>
                 </tr>
               );
@@ -487,14 +517,26 @@ export default function StaffManagement() {
                 autoComplete="email"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="i-phone">Phone (optional)</Label>
-              <Input
-                id="i-phone"
-                value={inviteForm.phone}
-                onChange={(e) => setInviteForm((f) => ({ ...f, phone: e.target.value }))}
-                autoComplete="tel"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="i-phone">Phone (optional)</Label>
+                <Input
+                  id="i-phone"
+                  value={inviteForm.phone}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, phone: e.target.value }))}
+                  autoComplete="tel"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="i-department">Department (optional)</Label>
+                <Input
+                  id="i-department"
+                  value={inviteForm.department}
+                  onChange={(e) => setInviteForm((f) => ({ ...f, department: e.target.value }))}
+                  placeholder="e.g. Sales, Service"
+                  autoComplete="organization"
+                />
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="i-role">Role</Label>

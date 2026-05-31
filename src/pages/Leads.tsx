@@ -144,7 +144,7 @@ export default function Leads() {
               <select value={form.vehicleId} onChange={(e) => setForm({ ...form, vehicleId: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background">
                 <option value="">Pick a vehicle…</option>
                 {(vehiclesQuery.data?.data ?? []).map((v) => (
-                  <option key={v.id} value={v.id}>{v.title}</option>
+                  <option key={v.id} value={v.id}>{v.title} — {v.status}</option>
                 ))}
               </select>
             </div>

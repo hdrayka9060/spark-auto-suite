@@ -87,6 +87,8 @@ export interface ServerVehicle {
   color: string;
   vin: string;
   bodyType: string;
+  trim: string;
+  engine: string;
   status: ServerVehicleStatus;
   hosting: ServerHosting;
   features: string[];
@@ -124,6 +126,8 @@ export interface Vehicle {
   fuel: string;
   transmission: string;
   bodyType: string;
+  trim: string;
+  engine: string;
   gallery: string[];
   history: { date: string; event: string; detail: string }[];
   activity: { views: number; inquiries: number; testDrives: number; favorites: number };
@@ -152,6 +156,8 @@ export interface VehicleFormInput {
   color?: string;
   vin?: string;
   bodyType?: string;
+  trim?: string;
+  engine?: string;
   description?: string;
   hosting?: "Self" | "Platform";
 }
@@ -269,6 +275,8 @@ export function toClientVehicle(s: ServerVehicle): Vehicle {
     fuel: capitalize(s.fuelType),
     transmission: capitalize(s.transmission),
     bodyType: s.bodyType ?? "",
+    trim: s.trim ?? "",
+    engine: s.engine ?? "",
     gallery: s.photos?.length ? s.photos : [FALLBACK_IMAGE],
     history: (s.history ?? []).map((h) => ({
       date: h.changedAt?.slice(0, 10) ?? "",
@@ -304,6 +312,8 @@ export interface ServerCreateVehiclePayload {
   color?: string;
   vin?: string;
   bodyType?: string;
+  trim?: string;
+  engine?: string;
   description?: string;
   hosting?: ServerHosting;
 }
@@ -323,6 +333,8 @@ export function toServerCreatePayload(input: VehicleFormInput): ServerCreateVehi
   if (input.color) payload.color = input.color;
   if (input.vin) payload.vin = input.vin;
   if (input.bodyType) payload.bodyType = input.bodyType;
+  if (input.trim) payload.trim = input.trim;
+  if (input.engine) payload.engine = input.engine;
   if (input.description) payload.description = input.description;
   if (input.hosting) payload.hosting = HOSTING_TO_SERVER[input.hosting];
   const fuel = normalizeFuelType(input.fuel);

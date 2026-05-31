@@ -144,16 +144,36 @@ export function staffInitials(s: { firstName?: string; lastName?: string; email?
  * stays a single source of truth (no extra backend endpoint to drift).
  *
  * Column order MUST match what UsersService.bulkInvite parses:
- * firstName, lastName, email, phone, role
+ *   firstName, lastName, email, phone, department, role
  *
  * `role` must match a Role's `name` exactly (case-insensitive) — the example
- * rows use seeded role names so the file works out of the box.
+ * rows use seeded role names so the file works out of the box. `department`
+ * and `phone` are optional (blank cells are accepted).
  */
 export function buildSampleStaffCsv(): string {
-  const header = "firstName,lastName,email,phone,role";
+  const header = "firstName,lastName,email,phone,department,role";
   const rows = [
-    "John,Doe,john.doe@example.com,555-0100,Sales Staff",
-    "Jane,Smith,jane.smith@example.com,555-0101,Sales Manager",
+    "John,Doe,john.doe@example.com,555-0100,Sales,Sales Staff",
+    "Jane,Smith,jane.smith@example.com,555-0101,Sales,Sales Manager",
+    "Maria,Lopez,maria.lopez@example.com,,Service,Support",
   ];
   return [header, ...rows].join("\n") + "\n";
 }
+
+/**
+ * Column metadata for the Sample-CSV UI hint card. Kept here next to the
+ * sample-builder so the docs and the actual columns can't drift.
+ */
+export const STAFF_CSV_COLUMNS: {
+  key: string;
+  label: string;
+  required: boolean;
+  hint: string;
+}[] = [
+  { key: "firstName", label: "First name", required: true, hint: "e.g. Jane" },
+  { key: "lastName", label: "Last name", required: true, hint: "e.g. Smith" },
+  { key: "email", label: "Email", required: true, hint: "must be unique" },
+  { key: "phone", label: "Phone", required: false, hint: "any format" },
+  { key: "department", label: "Department", required: false, hint: "e.g. Sales, Service" },
+  { key: "role", label: "Role", required: true, hint: "must match a role name" },
+];

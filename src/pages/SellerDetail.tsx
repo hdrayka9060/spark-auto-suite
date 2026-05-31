@@ -229,6 +229,8 @@ export default function SellerDetail() {
         await createCalendarEvent.mutateAsync({
           title: `Inspection — ${vehicleTitle}`,
           type: "inspection",
+          // Vehicle inspections happen in-person.
+          meetingType: "physical",
           startDateTime: start.toISOString(),
           endDateTime: end.toISOString(),
           customerName: seller?.name,
@@ -236,6 +238,20 @@ export default function SellerDetail() {
           customerPhone: seller?.phone,
           vehicleId: inspectVehicleId,
           assignedToId: inspectAssignee || undefined,
+          // Attach the seller as a participant so the event shows up on
+          // their filtered calendar (same fix as Lead/Buyer test-drive).
+          ...(seller?.id
+            ? {
+                participants: [
+                  {
+                    userType: "seller" as const,
+                    userId: seller.id,
+                    name: seller.name,
+                    email: seller.email,
+                  },
+                ],
+              }
+            : {}),
           notes: inspectNotes || undefined,
         });
         toast({ title: "Inspection booked", description: `${vehicleTitle} · ${inspectDate} ${inspectTime}` });

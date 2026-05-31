@@ -43,12 +43,16 @@ export default function Inventory() {
   const [pendingImages, setPendingImages] = useState<File[]>([]);
 
   const downloadSampleCsv = () => {
-    // Two example rows. Headers match the backend's expected CSV columns
-    // (see inventory.controller.ts bulk-upload doc).
+    // Two example rows. Headers cover every field on the Add Vehicle form and
+    // match the backend bulk-upload parser (see inventory.controller.ts doc).
+    // Required: company, model, year, price (title auto-built if blank).
+    // Enum columns use lowercase values: fuelType (petrol|diesel|electric|
+    // hybrid|cng), transmission (manual|automatic|cvt), hosting (self|platform).
+    // vehicleNumber is intentionally omitted — it's auto-generated server-side.
     const csv = [
-      "title,company,model,year,price,km,owners,fuelType,transmission,color,description,vin,bodyType",
-      `"2024 Honda Civic EX",Honda,Civic,2024,28000,5000,1,petrol,automatic,Silver,"Like-new condition; clean carfax",1HGCV1F37PA123456,Sedan`,
-      `"2023 Toyota Camry SE",Toyota,Camry,2023,32000,12000,1,petrol,automatic,"Pearl White","Well maintained; non-smoker",4T1G11AK1PU654321,Sedan`,
+      "title,company,model,trim,year,engine,fuelType,transmission,bodyType,vin,km,price,discount,owners,color,hosting,description",
+      `"2024 Honda Civic EX",Honda,Civic,EX,2024,"2.0L · 4-cyl",petrol,automatic,Sedan,1HGCV1F37PA123456,5000,28000,500,1,Silver,platform,"Like-new condition; clean carfax"`,
+      `"2023 Toyota Camry SE",Toyota,Camry,SE,2023,"2.5L · 4-cyl · 203hp",petrol,automatic,Sedan,4T1G11AK1PU654321,12000,32000,0,1,"Pearl White",self,"Well maintained; non-smoker"`,
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -211,6 +215,8 @@ export default function Inventory() {
         color: form.color || undefined,
         vin: vin.trim() || undefined,
         bodyType: form.bodyType || undefined,
+        trim: form.trim || undefined,
+        engine: form.engine || undefined,
         description: form.description || undefined,
         hosting: form.hosting,
       });
@@ -300,7 +306,7 @@ export default function Inventory() {
           <button
             onClick={() => csvInputRef.current?.click()}
             disabled={bulkUpload.isPending}
-            title="Upload a CSV (columns: vehicleNumber, title, company, model, year, price, km, discount, owners, fuelType, transmission, color, description, vin, bodyType)"
+            title="Upload a CSV. Columns: title, company, model, trim, year, engine, fuelType, transmission, bodyType, vin, km, price, discount, owners, color, hosting, description (vehicleNumber optional/auto). Required: company, model, year, price."
             className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80 disabled:opacity-60"
           >
             {bulkUpload.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}

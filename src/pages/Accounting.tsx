@@ -528,7 +528,7 @@ export default function Accounting() {
           <div className="grid md:grid-cols-3 gap-3">
             <select value={saleForm.vehicleId} onChange={(e) => setSaleForm({ ...saleForm, vehicleId: e.target.value })} className="border rounded-lg px-3 py-2 text-sm bg-background md:col-span-3">
               <option value="">Pick a vehicle *…</option>
-              {(vehiclesQuery.data?.data ?? []).map((v) => <option key={v.id} value={v.id}>{v.title}</option>)}
+              {(vehiclesQuery.data?.data ?? []).map((v) => <option key={v.id} value={v.id}>{v.title} — {v.status}</option>)}
             </select>
             {saleForm.linkedBuyerId === OTHER && (
               <>
@@ -828,7 +828,7 @@ export default function Accounting() {
                 className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
               >
                 <option value="">Pick a vehicle…</option>
-                {(vehiclesQuery.data?.data ?? []).map((v) => <option key={v.id} value={v.id}>{v.title}</option>)}
+                {(vehiclesQuery.data?.data ?? []).map((v) => <option key={v.id} value={v.id}>{v.title} — {v.status}</option>)}
               </select>
             </div>
             <div className="md:col-span-2">

@@ -199,6 +199,10 @@ export default function LeadDetail() {
         await createCalendarEvent.mutateAsync({
           title: `Test Drive — ${lead.vehicleTitle}`,
           type: "testDrive",
+          // Test drives happen in-person — explicit so the schema default
+          // doesn't drift, and so the event detail dialog renders the
+          // "physical" location section instead of expecting a Meet link.
+          meetingType: "physical",
           startDateTime: start.toISOString(),
           endDateTime: end.toISOString(),
           customerName: lead.buyerName,
@@ -206,6 +210,22 @@ export default function LeadDetail() {
           customerPhone: lead.buyerPhone,
           vehicleId: lead.vehicleId,
           assignedToId: tdForm.assignedTo || undefined,
+          // Attach the buyer as a participant so they appear in the
+          // buyer's filtered calendar view too — without this the buyer
+          // could only ever see the event in "All calendars" mode, which
+          // is the user-reported bug.
+          ...(lead.buyerId
+            ? {
+                participants: [
+                  {
+                    userType: "buyer" as const,
+                    userId: lead.buyerId,
+                    name: lead.buyerName,
+                    email: lead.buyerEmail,
+                  },
+                ],
+              }
+            : {}),
           notes: tdForm.notes || undefined,
         });
       } catch (err) {
