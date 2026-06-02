@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
+  DecodedVin,
   PaginatedServerResponse,
   ServerCreateVehiclePayload,
   ServerUpdateVehiclePayload,
@@ -99,6 +100,18 @@ export function useVehicleActivityLogs(vehicleId: string | undefined) {
   });
 }
 
+// ── VIN decode (server-side NHTSA vPIC lookup) ─────────────────────────────
+
+export function useDecodeVin() {
+  return useMutation({
+    mutationFn: async (args: { vin: string; year?: number }): Promise<DecodedVin> => {
+      const vin = args.vin.trim().toUpperCase();
+      const query = args.year ? { year: args.year } : undefined;
+      return api<DecodedVin>(`/inventory/vin/${encodeURIComponent(vin)}/decode`, { query });
+    },
+  });
+}
+
 // ── Mutations ──────────────────────────────────────────────────────────────
 
 export function useCreateVehicle() {
@@ -167,6 +180,8 @@ export function useDeleteVehicle() {
 
 export interface BulkUploadResult {
   created: number;
+  /** How many rows had specs auto-filled from a successfully decoded VIN. */
+  decoded?: number;
   errors: string[];
   totalRows?: number;
 }

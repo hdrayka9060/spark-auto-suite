@@ -251,6 +251,18 @@ export default function StaffManagement() {
 
   return (
     <div className="animate-fade-in space-y-6">
+      {/* Bulk-invite loading overlay — the server invites each row sequentially
+          (one SMTP send per staff member), so this can take a few seconds. */}
+      {bulkMutation.isPending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 rounded-xl border bg-card px-8 py-6 shadow-lg">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">Uploading CSV &amp; sending invitations…</p>
+            <p className="text-xs text-muted-foreground">Each staff member is emailed an invite — this can take a few seconds.</p>
+          </div>
+        </div>
+      )}
+
       <div className="module-header">
         <div>
           <h1 className="module-title">Staff Management</h1>

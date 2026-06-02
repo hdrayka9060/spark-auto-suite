@@ -6,20 +6,24 @@ import {
   Gauge, Calendar, Users as UsersIcon, Heart, ScanLine, Loader2, CheckCircle2,
   AlertCircle, Sparkles,
 } from "lucide-react";
-import { useBulkUploadVehicles, useCreateVehicle, useDeleteVehicle, useVehicles } from "@/hooks/api/use-vehicles";
+import {
+  useBulkUploadVehicles, useCreateVehicle, useDecodeVin, useDeleteVehicle, useVehicles,
+  type BulkUploadResult,
+} from "@/hooks/api/use-vehicles";
 import { api, ApiError, fileUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
-  ALL_BODY_TYPES, ALL_VEHICLE_STATUSES, VEHICLE_STATUS_BADGE_CLASS, normalizeBodyType,
+  ALL_BODY_TYPES, ALL_VEHICLE_STATUSES, VEHICLE_STATUS_BADGE_CLASS, decodedVinToFormPatch,
   type ServerVehicle, type Vehicle,
 } from "@/lib/vehicle-mapper";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { useConfirm } from "@/components/ConfirmDialog";
 
 // Status badge styling now lives in the mapper so every page uses the same colors.
 const statusClass = VEHICLE_STATUS_BADGE_CLASS;
-
-const toTitle = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
 type StatusFilter = "All" | Vehicle["status"];
 
@@ -46,16 +50,22 @@ export default function Inventory() {
   const [pendingImages, setPendingImages] = useState<File[]>([]);
 
   const downloadSampleCsv = () => {
-    // Two example rows. Headers cover every field on the Add Vehicle form and
-    // match the backend bulk-upload parser (see inventory.controller.ts doc).
-    // Required: company, model, year, price (title auto-built if blank).
-    // Enum columns use lowercase values: fuelType (petrol|diesel|electric|
-    // hybrid|cng), transmission (manual|automatic|cvt), hosting (self|platform).
-    // vehicleNumber is intentionally omitted — it's auto-generated server-side.
+    // Headers cover every field on the Add Vehicle form and match the backend
+    // bulk-upload parser (see inventory.controller.ts doc).
+    //   • If a row has a `vin`, the backend decodes it (NHTSA) and fills the
+    //     blank spec cells (make/model/year/trim/engine/fuel/transmission/body).
+    //     So the minimal row is just `vin` + `price` — see the first two rows.
+    //   • A filled cell always wins over the decode; rows 1–2 leave specs blank.
+    //   • A row with no VIN still works fully manually — see row 3.
+    // Required (after decode): company, model, year, price. Enum columns use
+    // lowercase: fuelType (petrol|diesel|electric|hybrid|cng), transmission
+    // (manual|automatic|cvt), hosting (self|platform). vehicleNumber is
+    // auto-generated server-side.
     const csv = [
       "title,company,model,trim,year,engine,fuelType,transmission,bodyType,vin,km,price,discount,owners,color,hosting,description",
-      `"2024 Honda Civic EX",Honda,Civic,EX,2024,"2.0L · 4-cyl",petrol,automatic,Sedan,1HGCV1F37PA123456,5000,28000,500,1,Silver,platform,"Like-new condition; clean carfax"`,
-      `"2023 Toyota Camry SE",Toyota,Camry,SE,2023,"2.5L · 4-cyl · 203hp",petrol,automatic,Sedan,4T1G11AK1PU654321,12000,32000,0,1,"Pearl White",self,"Well maintained; non-smoker"`,
+      `,,,,,,,,,5N1AT2MV8GC776183,42000,18500,,1,Gray,self,"VIN-only: make/model/year/specs auto-filled"`,
+      `,,,,,,,,,7SAYGDEE9PF626297,15000,51900,,1,White,self,"VIN-only: decoded; price & mileage from CSV"`,
+      `"2024 Honda Civic EX",Honda,Civic,EX,2024,"2.0L · 4-cyl",petrol,automatic,Sedan,,5000,28000,500,1,Silver,platform,"Manual entry — no VIN needed"`,
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -94,16 +104,7 @@ export default function Inventory() {
     }
     try {
       const result = await bulkUpload.mutateAsync(file);
-      const errorCount = result.errors?.length ?? 0;
-      if (errorCount === 0) {
-        toast({ title: "CSV import done", description: `${result.created} vehicle${result.created === 1 ? "" : "s"} added` });
-      } else {
-        toast({
-          title: `Imported ${result.created}, ${errorCount} failed`,
-          description: result.errors.slice(0, 3).join(" · "),
-          variant: errorCount > result.created ? "destructive" : "default",
-        });
-      }
+      setBulkResult(result);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Upload failed";
       toast({ title: "Upload failed", description: msg, variant: "destructive" });
@@ -114,9 +115,11 @@ export default function Inventory() {
 
   // VIN decoder state
   const [vin, setVin] = useState("");
-  const [vinLoading, setVinLoading] = useState(false);
+  const decodeVinMut = useDecodeVin();
   const [vinError, setVinError] = useState<string | null>(null);
   const [vinDecoded, setVinDecoded] = useState(false);
+  // Bulk-upload result (created/decoded/errors) — shown in a dialog after import.
+  const [bulkResult, setBulkResult] = useState<BulkUploadResult | null>(null);
   const [form, setForm] = useState({
     title: "", company: "", model: "", trim: "", year: "", engine: "",
     fuel: "", transmission: "", bodyType: "", plant: "", country: "",
@@ -129,6 +132,8 @@ export default function Inventory() {
   const VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/i;
   const isVinValid = VIN_RE.test(vin.trim());
 
+  // Decode runs server-side (NHTSA vPIC via the backend) — same lookup the bulk
+  // upload uses, with the field-mapping centralized in vehicle-mapper.
   const decodeVin = async () => {
     const v = vin.trim().toUpperCase();
     setVinError(null);
@@ -136,41 +141,20 @@ export default function Inventory() {
       setVinError("VIN must be 17 characters (letters & digits, no I/O/Q).");
       return;
     }
-    setVinLoading(true);
     try {
-      const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${v}?format=json`);
-      if (!res.ok) throw new Error("Lookup service unavailable");
-      const json = await res.json();
-      const r = json?.Results?.[0];
-      if (!r) throw new Error("No data returned for this VIN");
-      if (r.ErrorCode && r.ErrorCode !== "0" && r.ErrorCode !== "1" && r.ErrorCode !== "6") {
-        throw new Error(r.ErrorText || "VIN could not be decoded");
-      }
-      const make = r.Make || "";
-      const model = r.Model || "";
-      const year = r.ModelYear || "";
-      if (!make && !model && !year) throw new Error("VIN is valid but no vehicle data is available");
-      setForm((f) => ({
-        ...f,
-        company: make ? toTitle(make) : f.company,
-        model: model || f.model,
-        year: year || f.year,
-        trim: r.Trim || r.Series || f.trim,
-        engine: [r.DisplacementL && `${parseFloat(r.DisplacementL).toFixed(1)}L`, r.EngineCylinders && `${r.EngineCylinders}-cyl`, r.EngineHP && `${r.EngineHP}hp`].filter(Boolean).join(" · ") || f.engine,
-        fuel: r.FuelTypePrimary || f.fuel,
-        transmission: [r.TransmissionStyle, r.TransmissionSpeeds && `${r.TransmissionSpeeds}-spd`].filter(Boolean).join(" ") || f.transmission,
-        bodyType: normalizeBodyType(r.BodyClass) || f.bodyType,
-        plant: [r.PlantCity, r.PlantState, r.PlantCountry].filter(Boolean).join(", "),
-        country: r.PlantCountry || "",
-        title: [year, make && toTitle(make), model, r.Trim].filter(Boolean).join(" ") || f.title,
-      }));
+      const decoded = await decodeVinMut.mutateAsync({
+        vin: v,
+        year: form.year ? parseInt(form.year, 10) : undefined,
+      });
+      setForm((f) => ({ ...f, ...decodedVinToFormPatch(decoded) }));
       setVinDecoded(true);
-      toast({ title: "VIN decoded", description: `${year} ${toTitle(make)} ${model}` });
+      toast({
+        title: "VIN decoded",
+        description: [decoded.modelYear, decoded.make, decoded.model].filter(Boolean).join(" ") || "Specs auto-filled",
+      });
     } catch (e) {
-      setVinError(e instanceof Error ? e.message : "Failed to decode VIN");
+      setVinError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to decode VIN");
       setVinDecoded(false);
-    } finally {
-      setVinLoading(false);
     }
   };
 
@@ -296,6 +280,45 @@ export default function Inventory() {
 
   return (
     <div className="animate-fade-in space-y-6">
+      {/* Bulk-upload loading overlay — the server decodes every VIN in the file
+          (NHTSA batch) inside this one request, so show progress while we wait. */}
+      {bulkUpload.isPending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 rounded-xl border bg-card px-8 py-6 shadow-lg">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">Uploading CSV &amp; decoding VINs…</p>
+            <p className="text-xs text-muted-foreground">Looking up specs from NHTSA — this can take a few seconds for large files.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk-upload result — created / decoded / skipped + per-row errors. */}
+      <Dialog open={!!bulkResult} onOpenChange={(o) => { if (!o) setBulkResult(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Bulk upload complete</DialogTitle>
+            <DialogDescription>
+              {bulkResult?.created ?? 0} added
+              {bulkResult?.decoded ? ` · ${bulkResult.decoded} auto-filled from VIN` : ""}
+              {bulkResult?.errors?.length ? ` · ${bulkResult.errors.length} skipped` : ""}
+              {bulkResult?.totalRows ? ` · ${bulkResult.totalRows} row${bulkResult.totalRows === 1 ? "" : "s"} in file` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {bulkResult?.errors?.length ? (
+            <div className="max-h-64 overflow-y-auto rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-xs text-red-700 dark:text-red-300 space-y-1">
+              {bulkResult.errors.map((e, i) => <div key={i}>• {e}</div>)}
+            </div>
+          ) : (
+            <div className="rounded-md border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 p-3 text-xs text-emerald-700 dark:text-emerald-300">
+              All rows imported successfully.
+            </div>
+          )}
+          <DialogFooter>
+            <button onClick={() => setBulkResult(null)} className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg">Done</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="module-header">
         <div>
           <h1 className="module-title">Inventory Management</h1>
@@ -316,7 +339,7 @@ export default function Inventory() {
               <button
                 onClick={() => csvInputRef.current?.click()}
                 disabled={bulkUpload.isPending}
-                title="Upload a CSV. Columns: title, company, model, trim, year, engine, fuelType, transmission, bodyType, vin, km, price, discount, owners, color, hosting, description (vehicleNumber optional/auto). Required: company, model, year, price."
+                title="Upload a CSV. Add a vin column and the specs auto-fill (make/model/year/trim/engine/fuel/transmission/body) — minimal row is just vin + price. Filled cells always win. Required after decode: company, model, year, price."
                 className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80 disabled:opacity-60"
               >
                 {bulkUpload.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
@@ -375,11 +398,11 @@ export default function Inventory() {
               </div>
               <button
                 onClick={decodeVin}
-                disabled={!isVinValid || vinLoading}
+                disabled={!isVinValid || decodeVinMut.isPending}
                 className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition"
               >
-                {vinLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-                {vinLoading ? "Decoding…" : "Decode VIN"}
+                {decodeVinMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+                {decodeVinMut.isPending ? "Decoding…" : "Decode VIN"}
               </button>
             </div>
             {vinError && (

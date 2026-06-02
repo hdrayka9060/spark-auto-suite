@@ -276,6 +276,50 @@ export function normalizeTransmission(input?: string): ServerTransmission | unde
   return undefined;
 }
 
+// ── VIN decode (server /inventory/vin/:vin/decode → Add-Vehicle form patch) ─
+
+/**
+ * Shape returned by the backend VinDecodeService.decodeOne (NHTSA vPIC).
+ * `bodyType` arrives already normalized to ALL_BODY_TYPES, so it pre-selects in
+ * the dropdown; `fuel`/`transmission` are raw display strings that the form's
+ * submit mapper (`toServerCreatePayload`) coerces to the backend enums.
+ */
+export interface DecodedVin {
+  vin: string;
+  make?: string;
+  model?: string;
+  modelYear?: number;
+  trim?: string;
+  engine?: string;
+  fuel?: string;
+  transmission?: string;
+  bodyType?: string;
+  plant?: string;
+  country?: string;
+  title?: string;
+}
+
+/**
+ * Convert a server VIN-decode result into a partial Add-Vehicle form patch.
+ * Only non-empty fields are returned, so spreading it over the form
+ * (`{ ...form, ...patch }`) never clobbers a value the user already typed.
+ */
+export function decodedVinToFormPatch(d: DecodedVin): Record<string, string> {
+  const p: Record<string, string> = {};
+  if (d.make) p.company = d.make;
+  if (d.model) p.model = d.model;
+  if (d.modelYear) p.year = String(d.modelYear);
+  if (d.trim) p.trim = d.trim;
+  if (d.engine) p.engine = d.engine;
+  if (d.fuel) p.fuel = d.fuel;
+  if (d.transmission) p.transmission = d.transmission;
+  if (d.bodyType) p.bodyType = d.bodyType;
+  if (d.plant) p.plant = d.plant;
+  if (d.country) p.country = d.country;
+  if (d.title) p.title = d.title;
+  return p;
+}
+
 // ── Read direction: ServerVehicle → Vehicle ───────────────────────────────
 
 const FALLBACK_IMAGE = "🚗";

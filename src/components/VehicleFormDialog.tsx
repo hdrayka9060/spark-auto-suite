@@ -13,9 +13,9 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { ALL_BODY_TYPES, normalizeBodyType, type BodyType, type VehicleFormInput } from "@/lib/vehicle-mapper";
-
-const toTitle = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+import { ApiError } from "@/lib/api";
+import { useDecodeVin } from "@/hooks/api/use-vehicles";
+import { ALL_BODY_TYPES, decodedVinToFormPatch, type VehicleFormInput } from "@/lib/vehicle-mapper";
 
 const VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/i;
 
@@ -43,7 +43,7 @@ export function VehicleFormDialog({
 }: Props) {
   const [form, setForm] = useState(emptyForm());
   const [vin, setVin] = useState("");
-  const [vinLoading, setVinLoading] = useState(false);
+  const decodeVinMut = useDecodeVin();
   const [vinError, setVinError] = useState<string | null>(null);
   const [vinDecoded, setVinDecoded] = useState(false);
   const [pendingImages, setPendingImages] = useState<File[]>([]);
@@ -65,6 +65,10 @@ export function VehicleFormDialog({
   const setField = <K extends keyof ReturnType<typeof emptyForm>>(k: K, v: ReturnType<typeof emptyForm>[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
+  // Decode runs server-side (NHTSA vPIC via the backend) so the same lookup
+  // powers both this dialog and bulk upload, and the field-mapping lives in one
+  // place (vehicle-mapper.decodedVinToFormPatch). Decoded specs land in the
+  // editable fields below — the user reviews/tweaks, then Adds.
   const decodeVin = async () => {
     const v = vin.trim().toUpperCase();
     setVinError(null);
@@ -72,43 +76,20 @@ export function VehicleFormDialog({
       setVinError("VIN must be 17 characters (letters & digits, no I/O/Q).");
       return;
     }
-    setVinLoading(true);
     try {
-      const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${v}?format=json`);
-      if (!res.ok) throw new Error("Lookup service unavailable");
-      const json = await res.json();
-      const r = json?.Results?.[0];
-      if (!r) throw new Error("No data returned for this VIN");
-      if (r.ErrorCode && r.ErrorCode !== "0" && r.ErrorCode !== "1" && r.ErrorCode !== "6") {
-        throw new Error(r.ErrorText || "VIN could not be decoded");
-      }
-      const make = r.Make || "";
-      const model = r.Model || "";
-      const year = r.ModelYear || "";
-      if (!make && !model && !year) throw new Error("VIN is valid but no vehicle data is available");
-      setForm((f) => ({
-        ...f,
-        company: make ? toTitle(make) : f.company,
-        model: model || f.model,
-        year: year || f.year,
-        trim: r.Trim || r.Series || f.trim,
-        engine: [r.DisplacementL && `${parseFloat(r.DisplacementL).toFixed(1)}L`, r.EngineCylinders && `${r.EngineCylinders}-cyl`, r.EngineHP && `${r.EngineHP}hp`].filter(Boolean).join(" · ") || f.engine,
-        fuel: r.FuelTypePrimary || f.fuel,
-        transmission: [r.TransmissionStyle, r.TransmissionSpeeds && `${r.TransmissionSpeeds}-spd`].filter(Boolean).join(" ") || f.transmission,
-        // NHTSA returns long free-text body classes (e.g. "Sedan/Saloon",
-        // "Sport Utility Vehicle (SUV)/Multi-Purpose Vehicle (MPV)"). Squash
-        // onto our canonical list so the dropdown can show it pre-selected.
-        bodyType: normalizeBodyType(r.BodyClass) || f.bodyType,
-        plant: [r.PlantCity, r.PlantState, r.PlantCountry].filter(Boolean).join(", "),
-        title: [year, make && toTitle(make), model, r.Trim].filter(Boolean).join(" ") || f.title,
-      }));
+      const decoded = await decodeVinMut.mutateAsync({
+        vin: v,
+        year: form.year ? parseInt(form.year, 10) : undefined,
+      });
+      setForm((f) => ({ ...f, ...decodedVinToFormPatch(decoded) }));
       setVinDecoded(true);
-      toast({ title: "VIN decoded", description: `${year} ${toTitle(make)} ${model}` });
+      toast({
+        title: "VIN decoded",
+        description: [decoded.modelYear, decoded.make, decoded.model].filter(Boolean).join(" ") || "Specs auto-filled",
+      });
     } catch (e) {
-      setVinError(e instanceof Error ? e.message : "Failed to decode VIN");
+      setVinError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to decode VIN");
       setVinDecoded(false);
-    } finally {
-      setVinLoading(false);
     }
   };
 
@@ -158,6 +139,8 @@ export function VehicleFormDialog({
       color: form.color || undefined,
       vin: vin.trim() || undefined,
       bodyType: form.bodyType || undefined,
+      trim: form.trim || undefined,
+      engine: form.engine || undefined,
       description: form.description || undefined,
       hosting: form.hosting,
     };
@@ -197,11 +180,11 @@ export function VehicleFormDialog({
             </div>
             <button
               onClick={decodeVin}
-              disabled={!isVinValid || vinLoading}
+              disabled={!isVinValid || decodeVinMut.isPending}
               className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              {vinLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-              {vinLoading ? "Decoding…" : "Decode VIN"}
+              {decodeVinMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+              {decodeVinMut.isPending ? "Decoding…" : "Decode VIN"}
             </button>
           </div>
           {vinError && (
