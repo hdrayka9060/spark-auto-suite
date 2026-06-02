@@ -10,6 +10,7 @@ import {
 } from "@/hooks/api/use-roles";
 import { useStaffList } from "@/hooks/api/use-staff";
 import { allModules, type Permission } from "@/data/staff";
+import { navItems } from "@/config/nav";
 import { useCan } from "@/components/Can";
 import {
   AlertDialog,
@@ -24,6 +25,19 @@ import {
 import { Button } from "@/components/ui/button";
 
 const allPerms: Permission[] = ["view", "edit", "delete"];
+
+/**
+ * The permissions matrix only exposes access control for modules that are
+ * VISIBLE sidebar tabs. Hidden/retired nav entries (BHPH, Communication,
+ * Support, Settings — flagged `hidden` in config/nav.ts) are omitted so admins
+ * don't grant access to tabs nobody can reach.
+ *
+ * IMPORTANT: this filters only the RENDERED rows. The editable model below
+ * still spans `allModules`, so any permissions an existing role already holds
+ * for a hidden module are preserved untouched on save — toggling a visible row
+ * never wipes a hidden-module grant.
+ */
+const visibleModules = navItems.filter((n) => !n.hidden).map((n) => n.label);
 
 type RolePermission = { module: string; actions: Permission[] };
 
@@ -188,7 +202,7 @@ export default function RolesPermissions() {
                 Define a new role and select which module actions it may perform.
               </p>
             </div>
-            {createRole.isLoading && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
+            {createRole.isPending && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
           </div>
           <div className="grid md:grid-cols-2 gap-4">
             <input
@@ -217,7 +231,7 @@ export default function RolesPermissions() {
                 </tr>
               </thead>
               <tbody>
-                {allModules.map((module) => (
+                {visibleModules.map((module) => (
                   <tr key={module}>
                     <td className="font-medium text-sm">{module}</td>
                     {allPerms.map((perm) => (
@@ -241,14 +255,14 @@ export default function RolesPermissions() {
             <button
               onClick={() => setShowAdd(false)}
               className="px-4 py-2 text-sm border rounded-lg"
-              disabled={createRole.isLoading}
+              disabled={createRole.isPending}
             >
               Cancel
             </button>
             <button
               onClick={handleCreateRole}
               className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg"
-              disabled={createRole.isLoading}
+              disabled={createRole.isPending}
             >
               Create
             </button>
@@ -331,7 +345,7 @@ export default function RolesPermissions() {
                     </tr>
                   </thead>
                   <tbody>
-                    {allModules.map((module) => (
+                    {visibleModules.map((module) => (
                       <tr key={module}>
                         <td className="font-medium text-sm">{module}</td>
                         {allPerms.map((perm) => (
@@ -369,7 +383,7 @@ export default function RolesPermissions() {
                   {canDeleteRoles && (
                     <button
                       onClick={() => setConfirmDeleteRole(selectedRole)}
-                      disabled={deleteRole.isLoading || selectedRole.isSystem}
+                      disabled={deleteRole.isPending || selectedRole.isSystem}
                       title={
                         selectedRole.isSystem
                           ? "System roles cannot be deleted"
@@ -377,7 +391,7 @@ export default function RolesPermissions() {
                       }
                       className="flex items-center gap-2 px-4 py-2 text-sm border border-red-200 text-red-700 bg-white rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
                     >
-                      {deleteRole.isLoading && confirmDeleteRole?._id === selectedRole._id ? (
+                      {deleteRole.isPending && confirmDeleteRole?._id === selectedRole._id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <Trash2 className="h-4 w-4" />
@@ -390,9 +404,9 @@ export default function RolesPermissions() {
                     <button
                       onClick={handleSaveRole}
                       className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
-                      disabled={updateRole.isLoading}
+                      disabled={updateRole.isPending}
                     >
-                      {updateRole.isLoading ? (
+                      {updateRole.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <Check className="h-4 w-4" />
@@ -421,7 +435,7 @@ export default function RolesPermissions() {
       <DeleteRoleDialog
         role={confirmDeleteRole}
         onClose={() => setConfirmDeleteRole(null)}
-        deleting={deleteRole.isLoading}
+        deleting={deleteRole.isPending}
         assignedCount={
           confirmDeleteRole
             ? (staffQuery.data ?? []).filter((s) => s.roleId === confirmDeleteRole._id).length
