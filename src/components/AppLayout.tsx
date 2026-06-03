@@ -5,12 +5,17 @@ import {
   ChevronLeft, ChevronRight, Bell, Search, User, LogOut, Car,
 } from "lucide-react";
 import { navItems } from "@/config/nav";
+import { useUnreadCount } from "@/hooks/api/use-messaging";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { state, logout, hasPermission } = useAuth();
+  // Unread chat badge on the Communication nav item (only fetched if the user
+  // can see Communication, so non-members don't 403 in a loop).
+  const unreadQuery = useUnreadCount(hasPermission("Communication", "view"));
+  const unreadTotal = unreadQuery.data?.total ?? 0;
   const user = state.status === "authenticated" ? state.user : null;
   const displayName = user
     ? `${user.firstName} ${user.lastName}`.trim() || user.email
@@ -60,14 +65,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   active
                     ? "bg-primary text-white"
                     : "text-slate-400 hover:text-white hover:bg-white/5"
                 }`}
               >
                 <item.icon className="h-[18px] w-[18px] shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
+                {!collapsed && <span className="flex-1">{item.label}</span>}
+                {item.label === "Communication" && unreadTotal > 0 && (
+                  collapsed ? (
+                    <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-amber-400" />
+                  ) : (
+                    <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-slate-900 text-[10px] font-semibold flex items-center justify-center">
+                      {unreadTotal > 99 ? "99+" : unreadTotal}
+                    </span>
+                  )
+                )}
               </Link>
             );
           })}

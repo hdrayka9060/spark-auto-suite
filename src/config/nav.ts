@@ -60,7 +60,7 @@ export const navItems: NavItem[] = [
   { label: "Dealer Website", icon: Globe, path: "/dealer-website" },
   { label: "Dealer Marketplace", icon: Store, path: "/marketplace" },
   { label: "Calendar", icon: CalendarDays, path: "/calendar" },
-  { label: "Communication", icon: MessageSquare, path: "/communication", hidden: true },
+  { label: "Communication", icon: MessageSquare, path: "/communication" },
   { label: "Support", icon: HeadphonesIcon, path: "/support", hidden: true },
   { label: "Staff", icon: UserCog, path: "/staff" },
   { label: "Roles", icon: Shield, path: "/roles" },

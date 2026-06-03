@@ -1,11 +1,12 @@
 import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Outlet, Route, Routes } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth-context";
+import { SocketProvider } from "@/lib/socket-context";
 import { ConfirmProvider } from "@/components/ConfirmDialog";
 import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -65,16 +66,34 @@ const queryClient = new QueryClient();
  * Permission is resolved AFTER the layout renders so the sidebar still shows
  * (with whatever items the user can see) when a no-access stub is displayed.
  */
-const Protected = ({ children }: { children: React.ReactNode }) => (
+/**
+ * Persistent protected layout (React Router *layout route*). <AppLayout> mounts
+ * ONCE and survives navigation — only the <Outlet/> content swaps — so the
+ * sidebar/header no longer rebuild on every nav. The inner <Suspense> shows a
+ * spinner only in the content area while a lazy page's chunk loads, instead of
+ * the full-screen fallback replacing the whole app (which caused the
+ * first-navigation flicker). Per-page permission gating moves onto each child
+ * route via <PermissionRoute>.
+ */
+const ProtectedLayout = () => (
   <ProtectedRoute>
     <AppLayout>
-      <PermissionRoute>{children}</PermissionRoute>
+      <Suspense fallback={<ContentFallback />}>
+        <Outlet />
+      </Suspense>
     </AppLayout>
   </ProtectedRoute>
 );
 
 const RouteFallback = () => (
   <div className="min-h-screen flex items-center justify-center">
+    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+  </div>
+);
+
+// Content-area-only spinner (keeps the sidebar/header visible during chunk loads).
+const ContentFallback = () => (
+  <div className="flex items-center justify-center py-24">
     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
   </div>
 );
@@ -86,38 +105,42 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+        <SocketProvider>
         <ConfirmProvider>
         <RouteErrorBoundary>
         <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/auth" element={<Auth />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
-          <Route path="/" element={<Protected><Dashboard /></Protected>} />
-          <Route path="/inventory" element={<Protected><Inventory /></Protected>} />
-          <Route path="/inventory/:id" element={<Protected><VehicleDetail /></Protected>} />
-          <Route path="/crm-sellers" element={<Protected><CRMSellers /></Protected>} />
-          <Route path="/crm-sellers/:id" element={<Protected><SellerDetail /></Protected>} />
-          <Route path="/crm-buyers" element={<Protected><CRMBuyers /></Protected>} />
-          <Route path="/crm-buyers/:id" element={<Protected><BuyerDetail /></Protected>} />
-          <Route path="/leads" element={<Protected><Leads /></Protected>} />
-          <Route path="/leads/:id" element={<Protected><LeadDetail /></Protected>} />
-          <Route path="/accounting" element={<Protected><Accounting /></Protected>} />
-          <Route path="/bhph" element={<Protected><BHPH /></Protected>} />
-          <Route path="/marketing" element={<Protected><Marketing /></Protected>} />
-          <Route path="/marketing/:id" element={<Protected><CampaignDetail /></Protected>} />
-          <Route path="/dealer-website" element={<Protected><DealerWebsite /></Protected>} />
-          <Route path="/marketplace" element={<Protected><DealerMarketplace /></Protected>} />
-          <Route path="/calendar" element={<Protected><CalendarPage /></Protected>} />
-          <Route path="/communication" element={<Protected><Communication /></Protected>} />
-          <Route path="/support" element={<Protected><Support /></Protected>} />
-          <Route path="/staff" element={<Protected><StaffManagement /></Protected>} />
-          <Route path="/roles" element={<Protected><RolesPermissions /></Protected>} />
-          <Route path="/settings" element={<Protected><Settings /></Protected>} />
+          <Route element={<ProtectedLayout />}>
+            <Route index element={<PermissionRoute><Dashboard /></PermissionRoute>} />
+            <Route path="/inventory" element={<PermissionRoute><Inventory /></PermissionRoute>} />
+            <Route path="/inventory/:id" element={<PermissionRoute><VehicleDetail /></PermissionRoute>} />
+            <Route path="/crm-sellers" element={<PermissionRoute><CRMSellers /></PermissionRoute>} />
+            <Route path="/crm-sellers/:id" element={<PermissionRoute><SellerDetail /></PermissionRoute>} />
+            <Route path="/crm-buyers" element={<PermissionRoute><CRMBuyers /></PermissionRoute>} />
+            <Route path="/crm-buyers/:id" element={<PermissionRoute><BuyerDetail /></PermissionRoute>} />
+            <Route path="/leads" element={<PermissionRoute><Leads /></PermissionRoute>} />
+            <Route path="/leads/:id" element={<PermissionRoute><LeadDetail /></PermissionRoute>} />
+            <Route path="/accounting" element={<PermissionRoute><Accounting /></PermissionRoute>} />
+            <Route path="/bhph" element={<PermissionRoute><BHPH /></PermissionRoute>} />
+            <Route path="/marketing" element={<PermissionRoute><Marketing /></PermissionRoute>} />
+            <Route path="/marketing/:id" element={<PermissionRoute><CampaignDetail /></PermissionRoute>} />
+            <Route path="/dealer-website" element={<PermissionRoute><DealerWebsite /></PermissionRoute>} />
+            <Route path="/marketplace" element={<PermissionRoute><DealerMarketplace /></PermissionRoute>} />
+            <Route path="/calendar" element={<PermissionRoute><CalendarPage /></PermissionRoute>} />
+            <Route path="/communication" element={<PermissionRoute><Communication /></PermissionRoute>} />
+            <Route path="/support" element={<PermissionRoute><Support /></PermissionRoute>} />
+            <Route path="/staff" element={<PermissionRoute><StaffManagement /></PermissionRoute>} />
+            <Route path="/roles" element={<PermissionRoute><RolesPermissions /></PermissionRoute>} />
+            <Route path="/settings" element={<PermissionRoute><Settings /></PermissionRoute>} />
+          </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
         </Suspense>
         </RouteErrorBoundary>
         </ConfirmProvider>
+        </SocketProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
