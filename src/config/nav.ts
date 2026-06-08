@@ -13,6 +13,7 @@ import {
   MessageSquare,
   Target,
   Store,
+  Facebook,
   Shield,
   UserCog,
 } from "lucide-react";
@@ -59,6 +60,7 @@ export const navItems: NavItem[] = [
   { label: "Digital Marketing", icon: Megaphone, path: "/marketing" },
   { label: "Dealer Website", icon: Globe, path: "/dealer-website" },
   { label: "Dealer Marketplace", icon: Store, path: "/marketplace" },
+  { label: "Facebook Listings", icon: Facebook, path: "/facebook" },
   { label: "Calendar", icon: CalendarDays, path: "/calendar" },
   { label: "Communication", icon: MessageSquare, path: "/communication" },
   { label: "Support", icon: HeadphonesIcon, path: "/support", hidden: true },

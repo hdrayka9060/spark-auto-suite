@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { navItems } from "@/config/nav";
 import { useUnreadCount } from "@/hooks/api/use-messaging";
+import { useFacebookUnreadCount } from "@/hooks/api/use-facebook";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -16,6 +17,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // can see Communication, so non-members don't 403 in a loop).
   const unreadQuery = useUnreadCount(hasPermission("Communication", "view"));
   const unreadTotal = unreadQuery.data?.total ?? 0;
+  // Unread Facebook badge on the Facebook Listings nav item. The Inbox
+  // (Messenger) tab is hidden for now, so we count only unread COMMENTS — the
+  // sole Facebook surface the user can still act on. (Switch back to `.total`
+  // to include unread messages when the Inbox is re-enabled.)
+  const fbUnreadQuery = useFacebookUnreadCount(hasPermission("Facebook Listings", "view"));
+  const fbUnreadTotal = fbUnreadQuery.data?.comments ?? 0;
   const user = state.status === "authenticated" ? state.user : null;
   const displayName = user
     ? `${user.firstName} ${user.lastName}`.trim() || user.email
@@ -79,6 +86,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   ) : (
                     <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-slate-900 text-[10px] font-semibold flex items-center justify-center">
                       {unreadTotal > 99 ? "99+" : unreadTotal}
+                    </span>
+                  )
+                )}
+                {item.label === "Facebook Listings" && fbUnreadTotal > 0 && (
+                  collapsed ? (
+                    <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-red-500" />
+                  ) : (
+                    <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center">
+                      {fbUnreadTotal > 99 ? "99+" : fbUnreadTotal}
                     </span>
                   )
                 )}

@@ -46,6 +46,8 @@ const Marketing = lazy(() => import("./pages/Marketing"));
 const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
 const DealerWebsite = lazy(() => import("./pages/DealerWebsite"));
 const DealerMarketplace = lazy(() => import("./pages/DealerMarketplace"));
+const FacebookListings = lazy(() => import("./pages/FacebookListings"));
+const FacebookConnectCallback = lazy(() => import("./pages/FacebookConnectCallback"));
 const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const Communication = lazy(() => import("./pages/Communication"));
 const Support = lazy(() => import("./pages/Support"));
@@ -128,6 +130,8 @@ const App = () => (
             <Route path="/marketing/:id" element={<PermissionRoute><CampaignDetail /></PermissionRoute>} />
             <Route path="/dealer-website" element={<PermissionRoute><DealerWebsite /></PermissionRoute>} />
             <Route path="/marketplace" element={<PermissionRoute><DealerMarketplace /></PermissionRoute>} />
+            <Route path="/facebook" element={<PermissionRoute><FacebookListings /></PermissionRoute>} />
+            <Route path="/facebook/connect/callback" element={<PermissionRoute><FacebookConnectCallback /></PermissionRoute>} />
             <Route path="/calendar" element={<PermissionRoute><CalendarPage /></PermissionRoute>} />
             <Route path="/communication" element={<PermissionRoute><Communication /></PermissionRoute>} />
             <Route path="/support" element={<PermissionRoute><Support /></PermissionRoute>} />

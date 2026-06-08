@@ -19,9 +19,17 @@ export type Staff = {
   lastActive: string;
 };
 
+// MUST stay in sync with the backend AppModule enum
+// (cdms-backend/src/common/permissions.ts) AND config/nav.ts labels — these
+// strings are the lookup keys in role.permissions[].module. The Roles page
+// builds its editable permission model from this list, so a module missing
+// here (a) can't be toggled in the matrix and (b) gets silently wiped from a
+// role on save (normalizePermissions only carries modules present here).
+// "Facebook Listings" was added later and had drifted out of this list.
 export const allModules = [
   "Dashboard", "Inventory", "CRM – Sellers", "CRM – Buyers", "Leads & Sales",
   "Accounting", "BHPH", "Digital Marketing", "Dealer Website", "Dealer Marketplace",
+  "Facebook Listings",
   "Calendar", "Communication", "Support", "Staff", "Roles", "Settings",
 ];
 

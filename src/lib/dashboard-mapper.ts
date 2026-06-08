@@ -263,6 +263,17 @@ function actionPhrase(a: ServerActivity): string {
     case "spend-added":      return "Spend added";
     case "spend-updated":    return "Spend updated";
     case "spend-removed":    return "Spend removed";
+    case "facebook-connected":    return "Facebook connected";
+    case "facebook-disconnected": return "Facebook disconnected";
+    case "published":        return `${ent} published`;
+    case "listing-removed":  return "Listing removed";
+    case "comment-replied":  return "Comment replied";
+    case "comment-resolved": return "Comment resolved";
+    case "message-sent":         return "Messenger reply sent";
+    case "lead-assigned":        return "Lead assigned";
+    case "lead-status-changed":  return "Lead status changed";
+    case "lead-promoted":        return "Lead created from Messenger";
+    case "group-posted":         return "Posted to group";
     default:            return `${ent} ${a.action}`.trim();
   }
 }
