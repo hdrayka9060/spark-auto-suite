@@ -55,6 +55,8 @@ const StaffManagement = lazy(() => import("./pages/StaffManagement"));
 const RolesPermissions = lazy(() => import("./pages/RolesPermissions"));
 const Settings = lazy(() => import("./pages/Settings"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const BuyerPortal = lazy(() => import("./pages/portal/BuyerPortal"));
+const SellerPortal = lazy(() => import("./pages/portal/SellerPortal"));
 
 const queryClient = new QueryClient();
 
@@ -114,6 +116,8 @@ const App = () => (
         <Routes>
           <Route path="/auth" element={<Auth />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
+          <Route path="/portal" element={<BuyerPortal />} />
+          <Route path="/seller" element={<SellerPortal />} />
           <Route element={<ProtectedLayout />}>
             <Route index element={<PermissionRoute><Dashboard /></PermissionRoute>} />
             <Route path="/inventory" element={<PermissionRoute><Inventory /></PermissionRoute>} />
