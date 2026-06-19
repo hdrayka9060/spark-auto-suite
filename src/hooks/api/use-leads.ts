@@ -208,7 +208,7 @@ export function useBookLeadTestDrive(id: string) {
     },
     onSuccess: (lead) => {
       seedDetail(qc, id, lead);
-      qc.invalidateQueries({ queryKey: CALENDAR_KEY });
+      qc.invalidateQueries({ queryKey: ["calendar"] });
       qc.invalidateQueries({ queryKey: ["vehicles"] });
     },
   });
