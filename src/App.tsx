@@ -44,6 +44,7 @@ const Accounting = lazy(() => import("./pages/Accounting"));
 const BHPH = lazy(() => import("./pages/BHPH"));
 const Marketing = lazy(() => import("./pages/Marketing"));
 const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
+const MarketingConnectCallback = lazy(() => import("./pages/MarketingConnectCallback"));
 const DealerWebsite = lazy(() => import("./pages/DealerWebsite"));
 const DealerMarketplace = lazy(() => import("./pages/DealerMarketplace"));
 const FacebookListings = lazy(() => import("./pages/FacebookListings"));
@@ -56,7 +57,6 @@ const RolesPermissions = lazy(() => import("./pages/RolesPermissions"));
 const Settings = lazy(() => import("./pages/Settings"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const BuyerPortal = lazy(() => import("./pages/portal/BuyerPortal"));
-const SellerPortal = lazy(() => import("./pages/portal/SellerPortal"));
 
 const queryClient = new QueryClient();
 
@@ -116,8 +116,7 @@ const App = () => (
         <Routes>
           <Route path="/auth" element={<Auth />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
-          <Route path="/portal" element={<BuyerPortal />} />
-          <Route path="/seller" element={<SellerPortal />} />
+          <Route path="/portal/:leadId" element={<BuyerPortal />} />
           <Route element={<ProtectedLayout />}>
             <Route index element={<PermissionRoute><Dashboard /></PermissionRoute>} />
             <Route path="/inventory" element={<PermissionRoute><Inventory /></PermissionRoute>} />
@@ -131,6 +130,7 @@ const App = () => (
             <Route path="/accounting" element={<PermissionRoute><Accounting /></PermissionRoute>} />
             <Route path="/bhph" element={<PermissionRoute><BHPH /></PermissionRoute>} />
             <Route path="/marketing" element={<PermissionRoute><Marketing /></PermissionRoute>} />
+            <Route path="/marketing/connect/:provider/callback" element={<PermissionRoute><MarketingConnectCallback /></PermissionRoute>} />
             <Route path="/marketing/:id" element={<PermissionRoute><CampaignDetail /></PermissionRoute>} />
             <Route path="/dealer-website" element={<PermissionRoute><DealerWebsite /></PermissionRoute>} />
             <Route path="/marketplace" element={<PermissionRoute><DealerMarketplace /></PermissionRoute>} />

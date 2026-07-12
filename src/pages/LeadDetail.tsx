@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  AlertCircle, ArrowLeft, CalendarDays, Edit, Loader2, Mail, Phone, Plus, Save, Trash2,
+  AlertCircle, ArrowLeft, CalendarDays, Copy, Edit, Loader2, Mail, Phone, Plus, Save, Trash2,
 } from "lucide-react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import {
@@ -174,7 +174,7 @@ export default function LeadDetail() {
         title: "Lead updated",
         description:
           askedPriceNum > 0 && askedPriceNum !== lead.askedPrice
-            ? `Asked price set — pipeline moved to Negotiation.`
+            ? `Asked price updated.`
             : undefined,
       });
     } catch (err) {
@@ -214,6 +214,9 @@ export default function LeadDetail() {
           customerEmail: lead.buyerEmail,
           customerPhone: lead.buyerPhone,
           vehicleId: lead.vehicleId,
+          // Link the test-drive event to the lead so it also surfaces on the
+          // buyer portal's "Your Appointments" + the lead timeline.
+          lead: lead.id,
           assignedToId: tdForm.assignedTo || undefined,
           // Attach the buyer as a participant so they appear in the
           // buyer's filtered calendar view too — without this the buyer
@@ -365,6 +368,21 @@ export default function LeadDetail() {
     }
   };
 
+  // Copy the public buyer-portal link so staff can send it to the customer.
+  // The portal is the same SPA (route /portal/:leadId), so we build it off the
+  // current origin.
+  const copyPortalLink = async () => {
+    const url = `${window.location.origin}/portal/${lead.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Portal link copied", description: "Share it with the buyer to track their journey." });
+    } catch {
+      // Clipboard API can fail (insecure context / denied permission) — surface
+      // the URL in the toast so the user can copy it manually.
+      toast({ title: "Couldn't copy — here's the link", description: url, variant: "destructive" });
+    }
+  };
+
   const staffOptions = staffQuery.data ?? [];
   const vehicleOptions = vehiclesQuery.data?.data ?? [];
 
@@ -380,6 +398,13 @@ export default function LeadDetail() {
         </div>
         <div className="flex items-center gap-2">
           <span className={`status-badge ${statusColors[lead.status]}`}>{lead.status}</span>
+          <button
+            onClick={copyPortalLink}
+            className="flex items-center gap-2 bg-card border px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-muted"
+            title="Copy the buyer portal link to share with the customer"
+          >
+            <Copy className="h-3.5 w-3.5" /> Copy link
+          </button>
           {canDelete && (
             <button
               onClick={handleDelete}

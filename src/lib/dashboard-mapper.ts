@@ -274,6 +274,10 @@ function actionPhrase(a: ServerActivity): string {
     case "lead-status-changed":  return "Lead status changed";
     case "lead-promoted":        return "Lead created from Messenger";
     case "group-posted":         return "Posted to group";
+    // Marketing ads analytics (read-only Google + Meta Ads).
+    case "ads-connected":        return "Ad account connected";
+    case "ads-disconnected":     return "Ad account disconnected";
+    case "ads-synced":           return "Ad insights synced";
     default:            return `${ent} ${a.action}`.trim();
   }
 }

@@ -143,6 +143,9 @@ export function useRemoveParticipant() {
 function invalidate(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: CALENDAR_KEY });
   qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+  // Lead-linked events push a note onto the lead's timeline; refresh the
+  // Leads tab so that note appears without waiting for a manual reload.
+  qc.invalidateQueries({ queryKey: ["leads"] });
   qc.invalidateQueries({ queryKey: ["dashboard"] });
 }
 

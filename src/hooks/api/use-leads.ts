@@ -79,6 +79,9 @@ export function useCreateLead() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: LEADS_KEY });
+      // Creating a lead now also adds the vehicle to the buyer's
+      // interestedVehicles[], so refresh the buyer caches too.
+      qc.invalidateQueries({ queryKey: ["buyers"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
@@ -172,7 +175,12 @@ export function useAppendLeadLog(id: string) {
       });
       return toClientLead(updated);
     },
-    onSuccess: (lead) => seedDetail(qc, id, lead),
+    // Adding a lead log now also pushes a communication onto the buyer's
+    // CRM record, so refresh the buyer caches alongside the lead/dashboard.
+    onSuccess: (lead) => {
+      seedDetail(qc, id, lead);
+      qc.invalidateQueries({ queryKey: ["buyers"] });
+    },
   });
 }
 
@@ -210,6 +218,9 @@ export function useBookLeadTestDrive(id: string) {
       seedDetail(qc, id, lead);
       qc.invalidateQueries({ queryKey: ["calendar"] });
       qc.invalidateQueries({ queryKey: ["vehicles"] });
+      // Booking a test drive via the lead now also pushes a test_drive_booked
+      // entry onto the buyer's history[], so refresh the buyer caches.
+      qc.invalidateQueries({ queryKey: ["buyers"] });
     },
   });
 }

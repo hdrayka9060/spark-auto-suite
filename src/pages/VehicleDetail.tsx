@@ -18,7 +18,7 @@ import { useCan } from "@/components/Can";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { ApiError, fileUrl } from "@/lib/api";
 import {
-  ALL_BODY_TYPES, ALL_VEHICLE_STATUSES, ServerHosting, SPEND_CATEGORIES,
+  ALL_BODY_TYPES, ServerHosting, SPEND_CATEGORIES,
   VEHICLE_STATUS_BADGE_CLASS,
   Vehicle, VehicleSpend, normalizeFuelType, normalizeTransmission, vehicleStatusToServer,
 } from "@/lib/vehicle-mapper";
@@ -626,21 +626,10 @@ export default function VehicleDetail() {
             <div className="flex items-center gap-2 mt-2">
               {editing && editForm ? (
                 <>
-                  <select
-                    value={editForm.status}
-                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value as Vehicle["status"] })}
-                    className="border rounded-lg px-2 py-1 text-xs bg-background"
-                  >
-                    {/* "Sold" is intentionally NOT selectable here — marking a
-                        vehicle sold must go through the "Mark as Sold" button so
-                        it routes through the unified createSale flow (buyer +
-                        sale record). We only keep "Sold" as an option when the
-                        vehicle is ALREADY sold, so it displays and the user can
-                        still revert it to another status from the edit form. */}
-                    {ALL_VEHICLE_STATUSES
-                      .filter((s) => s !== "Sold" || vehicle.status === "Sold")
-                      .map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  {/* Status is no longer hand-edited here — a vehicle's status is
+                      driven by its leads + the unified sale flow ("Mark as Sold").
+                      Shown read-only so it stays visible while editing. */}
+                  <span className={`status-badge ${statusClass[vehicle.status]}`}>{vehicle.status}</span>
                   <select
                     value={editForm.hosting}
                     onChange={(e) => setEditForm({ ...editForm, hosting: e.target.value as Vehicle["hosting"] })}

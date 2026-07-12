@@ -121,6 +121,20 @@ export const ALL_LEAD_STATUSES: ClientLeadStatus[] = ["New", "Contacted", "Test 
 export const ALL_LEAD_SOURCES: ClientLeadSource[] = ["Website", "Google Ads", "Meta Ads", "Referral", "Walk-in"];
 export const ALL_LEAD_CHANNELS: ClientLeadChannel[] = ["Call", "Email", "WhatsApp", "SMS", "Offline"];
 
+/**
+ * Color theme per lead status — badge classes (mirrors VEHICLE_STATUS_BADGE_CLASS
+ * in vehicle-mapper). Single source of truth so the Leads page and the Inventory
+ * lead-tags render the same colors.
+ */
+export const LEAD_STATUS_BADGE_CLASS: Record<ClientLeadStatus, string> = {
+  New: "bg-blue-100 text-blue-700",
+  Contacted: "bg-purple-100 text-purple-700",
+  "Test Drive": "bg-amber-100 text-amber-700",
+  Negotiation: "bg-orange-100 text-orange-700",
+  Closed: "bg-emerald-100 text-emerald-700",
+  Archived: "bg-slate-100 text-slate-600",
+};
+
 function refId<T extends { _id: string } | string | null | undefined>(v: T): string {
   if (!v) return "";
   return typeof v === "string" ? v : v._id;

@@ -12,3 +12,5 @@ export const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 export const formatMiles = (n: number) => `${new Intl.NumberFormat("en-US").format(n)} mi`;
+
+export const formatKm = (n: number) => `${new Intl.NumberFormat("en-US").format(n || 0)} km`;

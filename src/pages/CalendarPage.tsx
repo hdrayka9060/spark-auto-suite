@@ -37,6 +37,7 @@ import { useBuyers } from "@/hooks/api/use-buyers";
 import { useSellers } from "@/hooks/api/use-sellers";
 import { useVehicles } from "@/hooks/api/use-vehicles";
 import { useStaff } from "@/hooks/api/use-staff";
+import { useLeads } from "@/hooks/api/use-leads";
 import { ApiError } from "@/lib/api";
 import {
   CalendarEventDisplay,
@@ -190,6 +191,7 @@ const EMPTY_FORM = {
   buyerId: "",
   vehicleId: "",
   assignedToId: "",
+  leadId: "",
   notes: "",
   participants: [] as ParticipantInput[],
 };
@@ -269,6 +271,7 @@ export default function CalendarPage() {
   const sellersQuery = useSellers({});
   const vehiclesQuery = useVehicles({ limit: 100 });
   const staffQuery = useStaff();
+  const leadsQuery = useLeads({});
 
   // Build the unified user directory used by the participant picker AND
   // the "view calendar of" search. Merging here keeps the combobox simple.
@@ -320,6 +323,7 @@ export default function CalendarPage() {
       buyerId: "",
       vehicleId: e.vehicleId ?? "",
       assignedToId: e.assignedToId ?? "",
+      leadId: e.leadId ?? "",
       notes: e.notes ?? "",
       participants: e.participants.map<ParticipantInput>((p) => ({
         userType: p.userType,
@@ -383,6 +387,47 @@ export default function CalendarPage() {
     }));
   };
 
+  // Selecting a lead links the event to it AND auto-fills the vehicle + buyer
+  // (adding the buyer as a participant). The link makes the event appear on the
+  // buyer portal and pushes a note onto the lead's timeline (backend).
+  const onLeadSelect = (leadId: string) => {
+    if (!leadId) {
+      setForm((f) => ({ ...f, leadId: "" }));
+      return;
+    }
+    const lead = (leadsQuery.data?.data ?? []).find((l) => l.id === leadId);
+    if (!lead) {
+      setForm((f) => ({ ...f, leadId }));
+      return;
+    }
+    setForm((f) => {
+      const hasBuyer =
+        !lead.buyerId ||
+        f.participants.some((p) => p.userType === "buyer" && p.userId === lead.buyerId);
+      const participants = hasBuyer
+        ? f.participants
+        : [
+            ...f.participants,
+            {
+              userType: "buyer" as ParticipantType,
+              userId: lead.buyerId,
+              name: lead.buyerName,
+              email: lead.buyerEmail ?? "",
+            },
+          ];
+      return {
+        ...f,
+        leadId,
+        vehicleId: lead.vehicleId || f.vehicleId,
+        buyerId: lead.buyerId || f.buyerId,
+        customerName: lead.buyerName ?? f.customerName,
+        customerEmail: lead.buyerEmail ?? f.customerEmail,
+        customerPhone: lead.buyerPhone ?? f.customerPhone,
+        participants,
+      };
+    });
+  };
+
   // ── Save (create or update) ────────────────────────────────────────────
   const handleSave = async () => {
     if (!form.title || !form.date || !form.time) {
@@ -404,6 +449,7 @@ export default function CalendarPage() {
       customerPhone: form.customerPhone || undefined,
       customerEmail: form.customerEmail || undefined,
       vehicleId: form.vehicleId || undefined,
+      lead: form.leadId || undefined,
       assignedToId: form.assignedToId || undefined,
       location: form.location || undefined,
       notes: form.notes || undefined,
@@ -627,10 +673,12 @@ export default function CalendarPage() {
             form={form}
             setForm={setForm}
             onBuyerSelect={onBuyerSelect}
+            onLeadSelect={onLeadSelect}
             buyers={buyersQuery.data?.data ?? []}
             sellers={sellersQuery.data?.data ?? []}
             staff={staffQuery.data ?? []}
             vehicles={vehiclesQuery.data?.data ?? []}
+            leads={leadsQuery.data?.data ?? []}
           />
           <DialogFooter>
             <Button variant="outline" onClick={closeForm}>Cancel</Button>
@@ -871,18 +919,22 @@ function EventForm({
   form,
   setForm,
   onBuyerSelect,
+  onLeadSelect,
   buyers,
   sellers,
   staff,
   vehicles,
+  leads,
 }: {
   form: EventForm;
   setForm: React.Dispatch<React.SetStateAction<EventForm>>;
   onBuyerSelect: (id: string) => void;
+  onLeadSelect: (id: string) => void;
   buyers: { id: string; name: string; email: string; phone: string }[];
   sellers: { id: string; name: string; email: string; phone: string }[];
   staff: { id: string; name: string; email: string }[];
   vehicles: { id: string; title: string }[];
+  leads: { id: string; buyerName: string; vehicleTitle: string; status: string }[];
 }) {
   return (
     <div className="space-y-4">
@@ -976,6 +1028,29 @@ function EventForm({
               </p>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Link to a CRM lead — selecting one auto-fills the vehicle + buyer and
+          attaches the event to the lead (shows on the buyer portal + lead timeline). */}
+      <div className="border rounded-lg p-3 space-y-2 bg-muted/20">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Link to lead (optional)</p>
+        <select
+          value={form.leadId}
+          onChange={(e) => onLeadSelect(e.target.value)}
+          className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+        >
+          <option value="">No linked lead…</option>
+          {leads.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.buyerName} → {l.vehicleTitle} ({l.status})
+            </option>
+          ))}
+        </select>
+        {form.leadId && (
+          <p className="text-xs text-muted-foreground">
+            Vehicle &amp; buyer auto-filled from the lead. This event will appear on the buyer&apos;s portal and the lead&apos;s timeline.
+          </p>
         )}
       </div>
 

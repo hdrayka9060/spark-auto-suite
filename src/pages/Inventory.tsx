@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,20 +10,23 @@ import {
   useBulkUploadVehicles, useCreateVehicle, useDecodeVin, useDeleteVehicle, useVehicles,
   type BulkUploadResult,
 } from "@/hooks/api/use-vehicles";
+import { useLeads } from "@/hooks/api/use-leads";
 import { api, ApiError, fileUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
-  ALL_BODY_TYPES, ALL_VEHICLE_STATUSES, VEHICLE_STATUS_BADGE_CLASS, decodedVinToFormPatch,
+  ALL_BODY_TYPES, ALL_VEHICLE_STATUSES, decodedVinToFormPatch,
   type ServerVehicle, type Vehicle,
 } from "@/lib/vehicle-mapper";
+import { LEAD_STATUS_BADGE_CLASS, type ClientLeadStatus } from "@/lib/lead-mapper";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { useConfirm } from "@/components/ConfirmDialog";
 
-// Status badge styling now lives in the mapper so every page uses the same colors.
-const statusClass = VEHICLE_STATUS_BADGE_CLASS;
+// Inventory cards/list tag each vehicle with the statuses of its (non-archived)
+// related leads instead of the vehicle's own status. Colors come from the mapper.
+const leadStatusClass = LEAD_STATUS_BADGE_CLASS;
 
 type StatusFilter = "All" | Vehicle["status"];
 
@@ -41,6 +44,20 @@ export default function Inventory() {
   const [view, setView] = useState<"grid" | "list">(savedState?.view ?? "grid");
 
   const vehiclesQuery = useVehicles({ search, status: statusFilter });
+  // Tag each vehicle with the statuses of its related leads (archived excluded).
+  // One tag per non-archived lead, so a car with several open inquiries shows
+  // several tags. Leads are fetched once (≤100) and grouped by vehicle id.
+  const leadsQuery = useLeads();
+  const leadTagsByVehicle = useMemo(() => {
+    const map = new Map<string, ClientLeadStatus[]>();
+    for (const lead of leadsQuery.data?.data ?? []) {
+      if (lead.status === "Archived" || !lead.vehicleId) continue;
+      const existing = map.get(lead.vehicleId);
+      if (existing) existing.push(lead.status);
+      else map.set(lead.vehicleId, [lead.status]);
+    }
+    return map;
+  }, [leadsQuery.data]);
   const createVehicle = useCreateVehicle();
   const queryClient = useQueryClient();
   const deleteVehicle = useDeleteVehicle();
@@ -619,6 +636,7 @@ export default function Inventory() {
               onOpen={() => openVehicle(v.id)}
               onDelete={(e) => handleDelete(e, v)}
               canDelete={canDeleteInventory}
+              leadTags={leadTagsByVehicle.get(v.id) ?? []}
             />
           ))}
         </div>
@@ -637,7 +655,7 @@ export default function Inventory() {
                 <th>KM</th>
                 <th>Price</th>
                 <th>Owners</th>
-                <th>Status</th>
+                <th>Lead Tags</th>
                 <th>Hosting</th>
                 <th>Actions</th>
               </tr>
@@ -664,7 +682,20 @@ export default function Inventory() {
                   <td>{v.km.toLocaleString()}</td>
                   <td className="font-medium">${v.price.toLocaleString()}{v.discount > 0 && <span className="text-xs text-emerald-600 ml-1">-${v.discount.toLocaleString()}</span>}</td>
                   <td>{v.owners}</td>
-                  <td><span className={`status-badge ${statusClass[v.status]}`}>{v.status}</span></td>
+                  <td>
+                    {(() => {
+                      const tags = leadTagsByVehicle.get(v.id) ?? [];
+                      return tags.length ? (
+                        <div className="flex flex-wrap gap-1">
+                          {tags.map((s, i) => (
+                            <span key={i} className={`status-badge ${leadStatusClass[s]}`}>{s}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      );
+                    })()}
+                  </td>
                   <td className="text-xs text-muted-foreground">{v.hosting}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-1">
@@ -701,11 +732,12 @@ function VehicleThumb({ image }: { image: string }) {
   return <span className="text-2xl">{image}</span>;
 }
 
-function VehicleCard({ vehicle: v, onOpen, onDelete, canDelete }: {
+function VehicleCard({ vehicle: v, onOpen, onDelete, canDelete, leadTags }: {
   vehicle: Vehicle;
   onOpen: () => void;
   onDelete: (e: React.MouseEvent) => void;
   canDelete: boolean;
+  leadTags: ClientLeadStatus[];
 }) {
   const isImagePath = v.image.includes("/");
   return (
@@ -719,7 +751,13 @@ function VehicleCard({ vehicle: v, onOpen, onDelete, canDelete }: {
         ) : (
           <span className="drop-shadow-sm">{v.image}</span>
         )}
-        <span className={`absolute top-3 left-3 status-badge ${statusClass[v.status]}`}>{v.status}</span>
+        {leadTags.length > 0 && (
+          <div className="absolute top-3 left-3 flex flex-wrap gap-1 max-w-[75%]">
+            {leadTags.map((s, i) => (
+              <span key={i} className={`status-badge ${leadStatusClass[s]}`}>{s}</span>
+            ))}
+          </div>
+        )}
         {v.discount > 0 && (
           <span className="absolute top-3 right-3 bg-emerald-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
             -${v.discount.toLocaleString()}

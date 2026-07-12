@@ -57,6 +57,8 @@ export interface ServerCalendarEvent {
   customerPhone: string;
   customerEmail: string;
   vehicle?: { _id: string; title: string; vehicleNumber?: string } | string | null;
+  /** Linked CRM lead (raw ObjectId — the API does not populate it). */
+  lead?: { _id: string } | string | null;
   meetLink: string;
   location: string;
   notes: string;
@@ -87,6 +89,7 @@ export interface CalendarEventDisplay {
   customerEmail?: string;
   vehicleId?: string;
   vehicleTitle?: string;
+  leadId?: string;
   assignedToName?: string;
   assignedToEmail?: string;
   assignedToId?: string;
@@ -151,6 +154,7 @@ export function toClientEvent(s: ServerCalendarEvent): CalendarEventDisplay {
     customerEmail: s.customerEmail || undefined,
     vehicleId: vehicle?._id,
     vehicleTitle: vehicle?.title,
+    leadId: typeof s.lead === "string" ? s.lead || undefined : s.lead?._id,
     assignedToName: assignee ? `${assignee.firstName} ${assignee.lastName}`.trim() : undefined,
     assignedToEmail: assignee?.email,
     assignedToId: typeof s.assignedTo === "string" ? s.assignedTo : assignee?._id,
@@ -193,6 +197,8 @@ export interface CalendarEventCreateInput {
   customerPhone?: string;
   customerEmail?: string;
   vehicleId?: string;
+  /** Link this event to a CRM lead (drives the Buyer Portal + lead timeline). */
+  lead?: string;
   assignedToId?: string;
   location?: string;
   meetLink?: string;
@@ -226,6 +232,7 @@ export function toServerEventCreatePayload(input: CalendarEventCreateInput) {
   if (input.customerPhone) out.customerPhone = input.customerPhone;
   if (input.customerEmail) out.customerEmail = input.customerEmail;
   if (input.vehicleId) out.vehicle = input.vehicleId;
+  if (input.lead) out.lead = input.lead;
   if (input.assignedToId) out.assignedTo = input.assignedToId;
   if (input.location) out.location = input.location;
   if (input.meetLink) out.meetLink = input.meetLink;
@@ -248,6 +255,7 @@ export function toServerEventUpdatePayload(input: CalendarEventUpdateInput) {
   if (input.customerPhone !== undefined) out.customerPhone = input.customerPhone;
   if (input.customerEmail !== undefined) out.customerEmail = input.customerEmail;
   if (input.vehicleId !== undefined) out.vehicle = input.vehicleId;
+  if (input.lead !== undefined) out.lead = input.lead;
   if (input.assignedToId !== undefined) out.assignedTo = input.assignedToId;
   if (input.location !== undefined) out.location = input.location;
   if (input.meetLink !== undefined) out.meetLink = input.meetLink;
