@@ -5,12 +5,16 @@ import { useCreateLead, useLeads } from "@/hooks/api/use-leads";
 import { useBuyers } from "@/hooks/api/use-buyers";
 import { useVehicles } from "@/hooks/api/use-vehicles";
 import { useStaff } from "@/hooks/api/use-staff";
+import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
 import {
   ALL_LEAD_SOURCES, ALL_LEAD_STATUSES, ClientLeadSource, ClientLeadStatus,
 } from "@/lib/lead-mapper";
 import { toast } from "@/hooks/use-toast";
 import { useCan } from "@/components/Can";
+import {
+  SaleDetailsFields, SaleDetails, seedSaleDetails, validateSaleDetails,
+} from "@/components/SaleDetailsFields";
 
 const statuses: (ClientLeadStatus | "All")[] = ["All", ...ALL_LEAD_STATUSES];
 
@@ -46,6 +50,8 @@ export default function Leads() {
   const buyersQuery = useBuyers({});
   const vehiclesQuery = useVehicles({ limit: 100 });
   const staffQuery = useStaff();
+  const { state: authState } = useAuth();
+  const selfId = authState.user?._id ?? "";
 
   const canEdit = useCan("Leads & Sales", "edit");
   const canDelete = useCan("Leads & Sales", "delete");
@@ -54,7 +60,25 @@ export default function Leads() {
     buyerId: "", vehicleId: "", source: "Website" as ClientLeadSource,
     status: "New" as ClientLeadStatus, assignedToId: "", notes: "",
   });
-  const resetForm = () => setForm({ buyerId: "", vehicleId: "", source: "Website", status: "New", assignedToId: "", notes: "" });
+  // Sale capture — only used when the initial status is Closed.
+  const [sale, setSale] = useState<SaleDetails>(seedSaleDetails());
+  const resetForm = () => {
+    setForm({ buyerId: "", vehicleId: "", source: "Website", status: "New", assignedToId: selfId, notes: "" });
+    setSale(seedSaleDetails());
+  };
+
+  // Leads are never unassigned — default the picker to the current user.
+  useEffect(() => {
+    if (selfId) setForm((f) => (f.assignedToId ? f : { ...f, assignedToId: selfId }));
+  }, [selfId]);
+
+  // When the initial status becomes Closed, prefill the sold price from the
+  // chosen vehicle's list price (staff can override).
+  useEffect(() => {
+    if (form.status !== "Closed") return;
+    const veh = (vehiclesQuery.data?.data ?? []).find((v) => v.id === form.vehicleId);
+    setSale((s) => (s.soldAt > 0 ? s : { ...s, soldAt: veh?.price ?? 0, amountPaid: veh?.price ?? 0 }));
+  }, [form.status, form.vehicleId, vehiclesQuery.data]);
 
   useEffect(() => {
     window.history.replaceState({ ...(window.history.state || {}), usr: { search, statusFilter, view } }, "");
@@ -88,6 +112,17 @@ export default function Leads() {
       return;
     }
 
+    // Creating a lead directly as Closed captures the sale (same as closing an
+    // existing lead) — validate before sending.
+    const closing = form.status === "Closed";
+    if (closing) {
+      const saleErr = validateSaleDetails(sale);
+      if (saleErr) {
+        toast({ title: "Sale details needed", description: saleErr, variant: "destructive" });
+        return;
+      }
+    }
+
     try {
       const lead = await createLead.mutateAsync({
         buyerId: form.buyerId,
@@ -96,8 +131,20 @@ export default function Leads() {
         status: form.status,
         assignedToId: form.assignedToId || undefined,
         notes: form.notes || undefined,
+        ...(closing
+          ? {
+              soldAt: sale.soldAt,
+              amountPaid: sale.amountPaid,
+              paymentMethod: sale.paymentMethod,
+              paymentStatus: sale.paymentStatus,
+              saleDate: sale.saleDate,
+            }
+          : {}),
       });
-      toast({ title: "Lead created", description: `${lead.buyerName} → ${lead.vehicleTitle}` });
+      toast({
+        title: closing ? "Lead created & sale recorded" : "Lead created",
+        description: `${lead.buyerName} → ${lead.vehicleTitle}`,
+      });
       resetForm();
       setShowAdd(false);
     } catch (err) {
@@ -167,10 +214,12 @@ export default function Leads() {
               </select>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">Assign to</label>
+              <label className="text-xs text-muted-foreground">Assign to *</label>
               <select value={form.assignedToId} onChange={(e) => setForm({ ...form, assignedToId: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background">
-                <option value="">Unassigned</option>
-                {(staffQuery.data ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                <option value="" disabled>Select staff…</option>
+                {(staffQuery.data ?? []).map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}{s.id === selfId ? " (you)" : ""}</option>
+                ))}
               </select>
             </div>
             <input
@@ -180,6 +229,18 @@ export default function Leads() {
               className="border rounded-lg px-3 py-2 text-sm bg-background self-end"
             />
           </div>
+
+          {/* Sale capture — appears when the lead is created directly as Closed. */}
+          {form.status === "Closed" && (
+            <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sale details</p>
+              <p className="text-[11px] text-muted-foreground">
+                Closing on creation records a sale, marks the vehicle Sold, and logs the buyer's purchase.
+              </p>
+              <SaleDetailsFields value={sale} onChange={setSale} />
+            </div>
+          )}
+
           <div className="flex justify-end gap-2">
             <button onClick={() => { setShowAdd(false); resetForm(); }} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
             <button

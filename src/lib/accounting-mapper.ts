@@ -9,10 +9,10 @@
 export type ServerPaymentStatus = "paid" | "pending" | "partial";
 export type ServerPaymentMethod = "cash" | "finance" | "bhph" | "trade_in";
 export type ServerExpenseCategory =
-  | "general" | "marketing" | "maintenance" | "staff" | "utilities" | "other";
+  | "general" | "marketing" | "maintenance" | "staff" | "utilities" | "other" | "reconditioning";
 
 export type ClientPaymentStatus = "Paid" | "Pending" | "Partial";
-export type ClientExpenseCategory = "General" | "Marketing" | "Maintenance" | "Staff" | "Utilities" | "Other";
+export type ClientExpenseCategory = "General" | "Marketing" | "Maintenance" | "Staff" | "Utilities" | "Other" | "Reconditioning";
 
 export interface ServerSale {
   _id: string;
@@ -43,6 +43,9 @@ export interface ServerExpense {
   category: ServerExpenseCategory;
   vendor: string;
   notes: string;
+  /** 'vehicle-spend' for rows mirrored from a vehicle reconditioning spend. */
+  source?: string;
+  vehicleId?: string;
   isDeleted: boolean;
   createdAt: string;
 }
@@ -52,7 +55,15 @@ export interface FinancialSummary {
   totalCost: number;
   /** Σ reconditioning spend across sold vehicles (part of the cost basis). */
   totalSpend: number;
+  /** Total Expenses = operational + reconditioning + cost of vehicles sold. */
   totalExpenses: number;
+  /** Σ operating expenses (marketing, utilities, staff, …). */
+  totalOperational?: number;
+  /** Σ reconditioning spend of sold cars (= totalSpend). */
+  totalReconditioning?: number;
+  /** Σ acquisition cost of sold cars (= totalCost). */
+  totalCostOfVehicles?: number;
+  /** Revenue − Total Expenses. */
   totalProfit: number;
   totalSales: number;
   outstanding: number;
@@ -89,6 +100,10 @@ export interface ExpenseEntry {
   category: ClientExpenseCategory;
   vendor: string;
   notes: string;
+  /** True for rows auto-mirrored from a vehicle reconditioning spend — these are
+   *  managed on the vehicle's Spends tab, so the expense ledger shows them read-only. */
+  fromVehicleSpend?: boolean;
+  vehicleId?: string;
 }
 
 export interface PLBucket {
@@ -98,7 +113,11 @@ export interface PLBucket {
   cost: number;
   /** Reconditioning spend for the month (part of cost basis). */
   spend: number;
+  /** Operating expenses for the month. */
   expenses: number;
+  /** Total Expenses = operational + reconditioning + cost of vehicles sold. */
+  totalExpenses: number;
+  /** Revenue − Total Expenses. */
   profit: number;
 }
 
@@ -120,6 +139,7 @@ const CATEGORY_TO_CLIENT: Record<ServerExpenseCategory, ClientExpenseCategory> =
   staff: "Staff",
   utilities: "Utilities",
   other: "Other",
+  reconditioning: "Reconditioning",
 };
 
 const CATEGORY_TO_SERVER: Record<ClientExpenseCategory, ServerExpenseCategory> = {
@@ -129,6 +149,7 @@ const CATEGORY_TO_SERVER: Record<ClientExpenseCategory, ServerExpenseCategory> =
   Staff: "staff",
   Utilities: "utilities",
   Other: "other",
+  Reconditioning: "reconditioning",
 };
 
 const STATUS_TO_SERVER: Record<ClientPaymentStatus, ServerPaymentStatus> = {
@@ -175,14 +196,17 @@ export function toClientSale(s: ServerSale): SaleLedgerEntry {
 }
 
 export function toClientExpense(e: ServerExpense): ExpenseEntry {
+  const fromVehicleSpend = e.source === "vehicle-spend" || e.category === "reconditioning";
   return {
     id: e._id,
     title: e.title,
     amount: e.amount,
     date: e.date?.slice(0, 10) ?? e.createdAt?.slice(0, 10),
-    category: CATEGORY_TO_CLIENT[e.category],
+    category: CATEGORY_TO_CLIENT[e.category] ?? "Other",
     vendor: e.vendor ?? "",
     notes: e.notes ?? "",
+    fromVehicleSpend,
+    vehicleId: e.vehicleId,
   };
 }
 
@@ -200,19 +224,20 @@ export function toClientProfitLoss(server: {
   const monthSet = new Set<number>([...salesByMonth.keys(), ...expensesByMonth.keys()]);
   const months = [...monthSet].sort((a, b) => a - b);
 
-  // Profit is computed the same way the Accounting "Profit" KPI tile shows
-  // it: revenue − cost basis (acquisition cost + reconditioning spend) = gross
-  // margin, NOT revenue − cost − operating expenses. Operating expenses are
-  // surfaced on their own bar so the dealer can eyeball overhead vs margin,
-  // but they DON'T reduce the profit figure — matches
-  // AccountingService.getSummary's `totalProfit: revenue − cost − spend`.
+  // Full-cost model: Total Expenses = operational + reconditioning + cost of
+  // vehicles sold; Profit = Revenue − Total Expenses. Matches
+  // AccountingService.getSummary's `totalProfit: revenue − totalExpenses`.
   const buckets: PLBucket[] = months.map((m) => {
     const sale = salesByMonth.get(m);
     const expense = expensesByMonth.get(m);
     const revenue = sale?.revenue ?? 0;
     const cost = sale?.cost ?? 0;
-    const spend = sale?.spend ?? 0;
+    const spend = sale?.spend ?? 0; // informational (per-sale snapshot); NOT summed
+    // `expenses` (the month's expense-ledger total) now already includes
+    // reconditioning, so Total Expenses = expenses + cost of vehicles sold.
+    // Reconditioning is NOT added again from the sale (avoids double-count).
     const expenses = expense?.total ?? 0;
+    const totalExpenses = expenses + cost;
     return {
       month: MONTH_NAMES[m - 1] ?? `M${m}`,
       monthIndex: m,
@@ -220,7 +245,8 @@ export function toClientProfitLoss(server: {
       cost,
       spend,
       expenses,
-      profit: revenue - cost - spend,
+      totalExpenses,
+      profit: revenue - totalExpenses,
     };
   });
 

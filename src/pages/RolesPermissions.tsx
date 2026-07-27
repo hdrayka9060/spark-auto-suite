@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
-import { Shield, Plus, Check, Loader2, Trash2, AlertTriangle, Lock } from "lucide-react";
+import { Shield, Plus, Check, Loader2, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import {
   useRoles,
@@ -12,6 +12,7 @@ import { useStaffList } from "@/hooks/api/use-staff";
 import { allModules, type Permission } from "@/data/staff";
 import { navItems } from "@/config/nav";
 import { useCan } from "@/components/Can";
+import { useAuth } from "@/lib/auth-context";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +64,12 @@ export default function RolesPermissions() {
   // PermissionRoute; these gate the mutating affordances inline.
   const canEditRoles = useCan("Roles", "edit");
   const canDeleteRoles = useCan("Roles", "delete");
+
+  // The role currently assigned to the signed-in user. Deleting your own role
+  // is blocked server-side (self-lockout guard); we mirror that in the UI so
+  // the affordance never round-trips to a 403.
+  const { user } = useAuth();
+  const ownRoleId = user?.roleId?._id ?? null;
 
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -302,7 +309,7 @@ export default function RolesPermissions() {
                   <span className="font-medium text-sm">{role.name}</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {role.permissions.filter((p) => Array.isArray(p.actions) && p.actions.length > 0).length} modules{role.isSystem ? " · system role" : ""}
+                  {role.permissions.filter((p) => Array.isArray(p.actions) && p.actions.length > 0).length} modules
                 </p>
               </button>
             ))
@@ -366,27 +373,18 @@ export default function RolesPermissions() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex items-center justify-between mt-4">
-                {/* Left side: a small contextual chip for system roles so the
-                    admin knows up-front why Delete is disabled. */}
-                <div className="text-xs text-muted-foreground">
-                  {selectedRole.isSystem && (
-                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-100 text-slate-700">
-                      <Lock className="h-3 w-3" /> System role — locked
-                    </span>
-                  )}
-                </div>
+              <div className="flex items-center justify-end mt-4">
                 <div className="flex gap-2">
-                  {/* Delete is gated by Roles:delete AND blocked for system
-                      roles. Backend rejects both cases, but disabling here
-                      avoids a wasted round-trip and clarifies the affordance. */}
+                  {/* Delete is gated by Roles:delete. System roles are now
+                      deletable; the only UI block is your OWN role, which the
+                      backend self-lockout guard would 403 anyway. */}
                   {canDeleteRoles && (
                     <button
                       onClick={() => setConfirmDeleteRole(selectedRole)}
-                      disabled={deleteRole.isPending || selectedRole.isSystem}
+                      disabled={deleteRole.isPending || selectedRole._id === ownRoleId}
                       title={
-                        selectedRole.isSystem
-                          ? "System roles cannot be deleted"
+                        selectedRole._id === ownRoleId
+                          ? "You cannot delete the role assigned to your own account"
                           : "Delete this role"
                       }
                       className="flex items-center gap-2 px-4 py-2 text-sm border border-red-200 text-red-700 bg-white rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
@@ -515,10 +513,10 @@ function DeleteRoleDialog({
                   <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   <div>
                     <p className="font-medium">
-                      {assignedCount} staff member{assignedCount === 1 ? "" : "s"} {assignedCount === 1 ? "is" : "are"} currently assigned to this role.
+                      Deletion blocked — {assignedCount} staff member{assignedCount === 1 ? "" : "s"} {assignedCount === 1 ? "is" : "are"} still assigned to this role.
                     </p>
                     <p className="text-xs mt-1 text-amber-800">
-                      They will keep this role attached but their permissions will silently stop applying. Reassign them from the Staff page before deleting.
+                      Reassign {assignedCount === 1 ? "them" : "them"} to another role from the Staff page first, then delete this role.
                     </p>
                   </div>
                 </div>
@@ -554,7 +552,7 @@ function DeleteRoleDialog({
           <Button
             type="button"
             variant="destructive"
-            disabled={!nameMatches || deleting}
+            disabled={!nameMatches || deleting || assignedCount > 0}
             onClick={onConfirm}
             className="min-w-[120px]"
           >

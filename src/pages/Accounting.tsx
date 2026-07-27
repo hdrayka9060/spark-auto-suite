@@ -1,13 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
-  DollarSign, TrendingUp, AlertCircle, Plus, X, Loader2, Receipt, Edit, Trash2, Download,
+  DollarSign, TrendingUp, AlertCircle, Plus, X, Loader2, Receipt, Edit, Trash2, Download, Wrench,
 } from "lucide-react";
 import { TimePeriodSelector } from "@/components/TimePeriodSelector";
 import { PERIOD_PRESETS, PeriodPreset } from "@/lib/period-helpers";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import {
   useCreateExpense, useCreateSale, useDeleteExpense, useDeleteSale, useExpenses,
-  useFinancialSummary, useProfitLoss, useSales, useUpdateExpense, useUpdateSale,
+  useFinancialSummary, useProfitLoss, useSales,
+  useUpdateExpense, useUpdateSale,
 } from "@/hooks/api/use-accounting";
 import { useVehicles } from "@/hooks/api/use-vehicles";
 import { useLeads } from "@/hooks/api/use-leads";
@@ -48,17 +50,46 @@ function formatMoney(n: number): string {
 
 function defaultPLRange(): { startDate: string; endDate: string } {
   const end = new Date();
-  const start = new Date(end.getFullYear(), end.getMonth() - 11, 1);
+  // Last 6 months INCLUDING the current month → first day of the month 5 back.
+  const start = new Date(end.getFullYear(), end.getMonth() - 5, 1);
   return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
 }
 
 type ExpenseView = "breakdown" | "ledger";
+
+/** Rows per page in the sales + expense ledgers. */
+const PAGE_SIZE = 10;
+
+/** Small prev / next pager. Shows "Page X of Y" and disables at the ends. */
+function LedgerPager({ page, totalPages, onPage }: { page: number; totalPages: number; onPage: (p: number) => void }) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className="flex items-center justify-end gap-2 mt-3 text-xs">
+      <button
+        onClick={() => onPage(page - 1)}
+        disabled={page <= 1}
+        className="px-2.5 py-1 rounded-md border hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        Prev
+      </button>
+      <span className="text-muted-foreground">Page {page} of {totalPages}</span>
+      <button
+        onClick={() => onPage(page + 1)}
+        disabled={page >= totalPages}
+        className="px-2.5 py-1 rounded-md border hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        Next
+      </button>
+    </div>
+  );
+}
 
 // Sentinel for the buyer picker — switching to it reveals manual name/email
 // inputs so the user can still record a sale to someone not in the CRM yet.
 const OTHER = "__other__";
 
 export default function Accounting() {
+  const navigate = useNavigate();
   const [showAddSale, setShowAddSale] = useState(false);
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [expenseView, setExpenseView] = useState<ExpenseView>("breakdown");
@@ -90,10 +121,38 @@ export default function Accounting() {
   const canDelete = useCan("Accounting", "delete");
 
   const expenseList = expensesQuery.data?.data ?? [];
-  const expenseBreakdown = useMemo(() => groupExpensesByCategory(expenseList), [expenseList]);
-  const maxExpense = expenseBreakdown[0]?.amount ?? 1;
+  // Operating-expense breakdown excludes reconditioning rows — reconditioning is
+  // shown as its own total line (summed from the summary), not a category bar.
+  const expenseBreakdown = useMemo(
+    () => groupExpensesByCategory(expenseList.filter((e) => !e.fromVehicleSpend)),
+    [expenseList],
+  );
 
   const summary = summaryQuery.data;
+  // Full-cost expense breakdown: operating categories + reconditioning (of sold
+  // cars) + cost of vehicles sold — these three groups sum to Total Expenses,
+  // and Profit = Revenue − Total Expenses.
+  const reconTotal = summary?.totalReconditioning ?? 0;
+  const costOfVehicles = summary?.totalCostOfVehicles ?? 0;
+  const totalExpenses = summary?.totalExpenses ?? 0;
+  const maxExpense = Math.max(expenseBreakdown[0]?.amount ?? 0, reconTotal, costOfVehicles, 1);
+
+  // ── Ledger pagination (client-side; CSV + breakdown still use full data) ──
+  const [salesPage, setSalesPage] = useState(1);
+  const [expPage, setExpPage] = useState(1);
+  // Reset to page 1 whenever the active range/view changes so the user never
+  // lands on an out-of-bounds page.
+  useEffect(() => { setSalesPage(1); }, [rangeStart, rangeEnd]);
+  useEffect(() => { setExpPage(1); }, [rangeStart, rangeEnd, expenseView]);
+
+  const allSales = salesQuery.data?.data ?? [];
+  const salesTotalPages = Math.max(1, Math.ceil(allSales.length / PAGE_SIZE));
+  const salesPageSafe = Math.min(salesPage, salesTotalPages);
+  const pagedSales = allSales.slice((salesPageSafe - 1) * PAGE_SIZE, salesPageSafe * PAGE_SIZE);
+
+  const expTotalPages = Math.max(1, Math.ceil(expenseList.length / PAGE_SIZE));
+  const expPageSafe = Math.min(expPage, expTotalPages);
+  const pagedExpenses = expenseList.slice((expPageSafe - 1) * PAGE_SIZE, expPageSafe * PAGE_SIZE);
   const stats = useMemo(() => [
     { label: "Total Sales", value: summary ? String(summary.totalSales) : "—", icon: Receipt, color: "bg-primary/10 text-primary" },
     { label: "Revenue", value: summary ? formatMoney(summary.totalRevenue) : "—", icon: TrendingUp, color: "bg-emerald-50 text-emerald-600" },
@@ -604,13 +663,13 @@ export default function Accounting() {
 
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="stat-card">
-          <h3 className="font-display font-semibold mb-4">Profit & Loss (last 12 months)</h3>
+          <h3 className="font-display font-semibold mb-4">Profit & Loss (last 6 months)</h3>
           {plQuery.isLoading ? (
             <div className="flex items-center justify-center text-muted-foreground gap-2 py-12 text-sm">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading…
             </div>
           ) : (plQuery.data?.buckets ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">No sales or expenses in the last 12 months.</p>
+            <p className="text-sm text-muted-foreground py-8 text-center">No sales or expenses in the last 6 months.</p>
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={plQuery.data!.buckets}>
@@ -622,9 +681,9 @@ export default function Accounting() {
                   wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
                   iconType="square"
                 />
-                <Bar dataKey="revenue"  name="Revenue"  fill="hsl(222 60% 45%)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="expenses" name="Expenses" fill="hsl(220 13% 80%)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="profit"   name="Profit"   fill="hsl(152 60% 42%)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="revenue"       name="Revenue"        fill="hsl(222 60% 45%)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="totalExpenses" name="Total Expenses" fill="hsl(220 13% 80%)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="profit"        name="Profit"         fill="hsl(152 60% 42%)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -675,7 +734,7 @@ export default function Accounting() {
             <div className="flex items-center justify-center text-muted-foreground gap-2 py-8 text-sm">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading…
             </div>
-          ) : expenseList.length === 0 ? (
+          ) : expenseList.length === 0 && reconItems.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No expenses logged yet.</p>
           ) : expenseView === "breakdown" ? (
             <div className="space-y-3">
@@ -690,47 +749,106 @@ export default function Accounting() {
                   </div>
                 </div>
               ))}
+              {/* Reconditioning of sold cars — now counted toward Total Expenses. */}
+              {reconTotal > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm flex items-center gap-1.5">
+                    <Wrench className="h-3.5 w-3.5 text-muted-foreground" /> Reconditioning
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <div className="w-32 bg-muted rounded-full h-2">
+                      <div className="bg-slate-400 h-2 rounded-full" style={{ width: `${Math.min(100, (reconTotal / maxExpense) * 100)}%` }} />
+                    </div>
+                    <span className="text-sm font-medium w-24 text-right">{formatMoney(reconTotal)}</span>
+                  </div>
+                </div>
+              )}
+              {/* Cost of vehicles sold — acquisition cost, the largest expense line. */}
+              {costOfVehicles > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm flex items-center gap-1.5">
+                    <DollarSign className="h-3.5 w-3.5 text-muted-foreground" /> Cost of Vehicles Sold
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <div className="w-32 bg-muted rounded-full h-2">
+                      <div className="bg-amber-500/70 h-2 rounded-full" style={{ width: `${Math.min(100, (costOfVehicles / maxExpense) * 100)}%` }} />
+                    </div>
+                    <span className="text-sm font-medium w-24 text-right">{formatMoney(costOfVehicles)}</span>
+                  </div>
+                </div>
+              )}
+              {/* Total = operational + reconditioning + cost of vehicles sold. */}
+              <div className="pt-3 mt-1 border-t flex items-center justify-between">
+                <span className="text-sm font-semibold">Total Expenses</span>
+                <span className="text-sm font-bold w-24 text-right">{formatMoney(totalExpenses)}</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">Profit = Revenue − Total Expenses.</p>
             </div>
           ) : (
             // Ledger view — scrollable list with hover edit/delete actions.
+            <>
             <div className="max-h-[280px] overflow-y-auto -mx-2">
               <ul className="divide-y">
-                {expenseList.map((e) => (
-                  <li key={e.id} className="group flex items-start gap-2 px-2 py-2">
+                {/* One date-sorted list. Rows mirrored from a vehicle spend are
+                    tagged "Reconditioning", link to the vehicle, and are
+                    read-only here (managed on the vehicle's Spends tab). */}
+                {pagedExpenses.map((e) => (
+                  <li
+                    key={e.id}
+                    className={`group flex items-start gap-2 px-2 py-2 ${e.fromVehicleSpend ? "bg-slate-50/50" : ""}`}
+                  >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium truncate">{e.title}</span>
-                        <span className="status-badge bg-slate-100 text-slate-700 text-[10px]">{e.category}</span>
+                        {e.fromVehicleSpend && e.vehicleId ? (
+                          <button
+                            onClick={() => navigate(`/inventory/${e.vehicleId}`)}
+                            className="text-sm font-medium truncate text-primary hover:underline text-left"
+                          >
+                            {e.title}
+                          </button>
+                        ) : (
+                          <span className="text-sm font-medium truncate">{e.title}</span>
+                        )}
+                        <span
+                          className={`status-badge text-[10px] ${e.fromVehicleSpend ? "bg-slate-200 text-slate-700" : "bg-slate-100 text-slate-700"}`}
+                        >
+                          {e.category}
+                        </span>
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
                         {e.date}{e.vendor && ` · ${e.vendor}`}{e.notes && ` · ${e.notes}`}
                       </p>
                     </div>
                     <span className="text-sm font-medium whitespace-nowrap">{formatMoney(e.amount)}</span>
-                    <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100">
-                      {canEdit && (
-                        <button
-                          onClick={() => openEditExpense(e)}
-                          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary"
-                          title="Edit"
-                        >
-                          <Edit className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          onClick={() => setPendingDeleteExpense(e)}
-                          className="p-1 rounded hover:bg-red-50 text-red-600"
-                          title="Delete"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
+                    {/* Mirrored reconditioning rows are edited via Inventory, not here. */}
+                    {!e.fromVehicleSpend && (
+                      <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100">
+                        {canEdit && (
+                          <button
+                            onClick={() => openEditExpense(e)}
+                            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-primary"
+                            title="Edit"
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => setPendingDeleteExpense(e)}
+                            className="p-1 rounded hover:bg-red-50 text-red-600"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
             </div>
+            <LedgerPager page={expPageSafe} totalPages={expTotalPages} onPage={setExpPage} />
+            </>
           )}
         </div>
       </div>
@@ -753,6 +871,7 @@ export default function Accounting() {
         ) : (salesQuery.data?.data ?? []).length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">No sales recorded yet. Click "Record Sale" above.</p>
         ) : (
+          <>
           <table className="data-table">
             <thead>
               <tr>
@@ -772,12 +891,12 @@ export default function Accounting() {
               </tr>
             </thead>
             <tbody>
-              {(salesQuery.data?.data ?? []).map((s) => {
+              {pagedSales.map((s, i) => {
                 const net = Math.max(0, s.amount - s.discount);
                 const margin = net - s.costPrice - s.totalSpend;
                 const hasCostBasis = s.costPrice > 0 || s.totalSpend > 0;
                 return (
-                <tr key={s.id} className="group">
+                <tr key={s.id || `sale-${i}`} className="group">
                   <td className="font-mono text-xs">{s.id.slice(-6)}</td>
                   <td className="text-sm">{s.vehicleTitle}</td>
                   <td className="text-sm">{s.buyerName}</td>
@@ -828,6 +947,8 @@ export default function Accounting() {
               })}
             </tbody>
           </table>
+          <LedgerPager page={salesPageSafe} totalPages={salesTotalPages} onPage={setSalesPage} />
+          </>
         )}
       </div>
 

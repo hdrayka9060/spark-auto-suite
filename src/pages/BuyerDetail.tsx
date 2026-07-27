@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle, ArrowLeft, ArrowRight, CalendarDays, Edit, Eye, Heart, Loader2, Mail,
-  MessageCircle, Phone, Plus, ShoppingBag, Trash2, X,
+  MapPin, MessageCircle, Phone, Plus, ShoppingBag, Trash2, Video, X,
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -9,13 +9,15 @@ import {
   useBuyer, useDeleteBuyer, useDeleteBuyerCommunication, useRemoveBuyerInterestedVehicle,
   useUpdateBuyer, useUpdateBuyerCommunication,
 } from "@/hooks/api/use-buyers";
-import { useCreateCalendarEvent } from "@/hooks/api/use-calendar";
+import { useCreateCalendarEvent, useCalendarEvents } from "@/hooks/api/use-calendar";
 import { useStaff } from "@/hooks/api/use-staff";
 import { useVehicles } from "@/hooks/api/use-vehicles";
+import { useAuth } from "@/lib/auth-context";
 import { ApiError, fileUrl } from "@/lib/api";
 import {
   BuyerCommChannel, BuyerCommunication, BuyerCommunicationInput, ClientBuyerStatus,
 } from "@/lib/buyer-mapper";
+import { ClientMeetingType, ParticipantInput } from "@/lib/calendar-mapper";
 import { toast } from "@/hooks/use-toast";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -48,6 +50,7 @@ const channelColors: Record<BuyerCommChannel, string> = {
   whatsapp: "bg-emerald-100 text-emerald-700",
   sms: "bg-amber-100 text-amber-700",
   offline: "bg-slate-100 text-slate-700",
+  website: "bg-cyan-100 text-cyan-700",
 };
 
 const channelLabel: Record<BuyerCommChannel, string> = {
@@ -56,7 +59,27 @@ const channelLabel: Record<BuyerCommChannel, string> = {
   whatsapp: "WhatsApp",
   sms: "SMS",
   offline: "Offline",
+  website: "Website",
 };
+
+// Calendar event status → badge label + colour (used by the Test Drives list).
+const TD_STATUS_META: Record<string, { label: string; cls: string }> = {
+  scheduled: { label: "Scheduled", cls: "bg-blue-100 text-blue-700" },
+  completed: { label: "Completed", cls: "bg-emerald-100 text-emerald-700" },
+  cancelled: { label: "Cancelled", cls: "bg-gray-100 text-gray-600" },
+  no_show: { label: "No-show", cls: "bg-red-100 text-red-700" },
+};
+
+/**
+ * Test-drive badge for the Test Drives & Purchases list. ONLY upcoming events
+ * get a badge ("Scheduled", or "Cancelled" if explicitly cancelled). PAST
+ * events (already happened) show no badge at all — returns null.
+ */
+function tdStatusMeta(startMs: number, backendStatus: string, nowMs: number) {
+  if (startMs < nowMs) return null; // past event → no badge
+  if (backendStatus === "cancelled") return TD_STATUS_META.cancelled;
+  return TD_STATUS_META.scheduled;
+}
 
 const seedEditForm = () => ({
   name: "",
@@ -79,6 +102,11 @@ const seedTestDriveForm = () => ({
   time: "10:00",
   assignedTo: "",
   notes: "",
+  meetingType: "physical" as ClientMeetingType,
+  location: "",
+  createMeet: false,
+  meetLink: "",
+  participants: [] as ParticipantInput[],
 });
 
 export default function BuyerDetail() {
@@ -98,9 +126,33 @@ export default function BuyerDetail() {
   const createCalendarEvent = useCreateCalendarEvent();
   const vehiclesQuery = useVehicles({ limit: 100 });
   const staffQuery = useStaff();
+  const { state: authState } = useAuth();
+  const currentUser = authState.user;
+
+  // Wide window so both past and upcoming calendar test-drives surface in the
+  // "Test Drives & Purchases" section. Buyer is a participant on each event
+  // (added at booking time), so the userType='buyer' filter returns them.
+  const tdRange = useMemo(() => {
+    const start = new Date(); start.setFullYear(start.getFullYear() - 3); start.setHours(0, 0, 0, 0);
+    const end = new Date(); end.setFullYear(end.getFullYear() + 1); end.setHours(23, 59, 59, 999);
+    return { startDate: start.toISOString(), endDate: end.toISOString() };
+  }, []);
+  const buyerEventsQuery = useCalendarEvents(tdRange, id ? { userId: id, userType: "buyer" } : {});
+
+  // Real calendar test-drive events (source of truth), newest first. Declared
+  // here — before the loading/error early returns — so hook order stays stable.
+  const calendarTestDrives = useMemo(
+    () =>
+      (buyerEventsQuery.data ?? [])
+        .filter((e) => e.type === "testDrive")
+        .sort((a, b) => b.start.getTime() - a.start.getTime()),
+    [buyerEventsQuery.data],
+  );
 
   const canEdit = useCan("CRM – Buyers", "edit");
   const canDelete = useCan("CRM – Buyers", "delete");
+
+  const [participantPick, setParticipantPick] = useState("");
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(seedEditForm());
@@ -214,9 +266,29 @@ export default function BuyerDetail() {
   };
 
   const openTestDriveDialog = (vehicleId?: string) => {
-    setTestDriveForm({ ...seedTestDriveForm(), vehicleId: vehicleId ?? "" });
+    // Default the responsible staff to whoever is booking it (current user).
+    setTestDriveForm({
+      ...seedTestDriveForm(),
+      vehicleId: vehicleId ?? "",
+      assignedTo: currentUser?._id ?? "",
+    });
+    setParticipantPick("");
     setTestDriveOpen(true);
   };
+
+  const addTdParticipant = () => {
+    if (!participantPick) return;
+    const staff = staffQuery.data?.find((s) => s.id === participantPick);
+    if (!staff) return;
+    if (testDriveForm.participants.some((p) => p.userId === staff.id)) { setParticipantPick(""); return; }
+    setTestDriveForm((f) => ({
+      ...f,
+      participants: [...f.participants, { userType: "staff", userId: staff.id, name: staff.name, email: staff.email || undefined }],
+    }));
+    setParticipantPick("");
+  };
+  const removeTdParticipant = (userId?: string) =>
+    setTestDriveForm((f) => ({ ...f, participants: f.participants.filter((p) => p.userId !== userId) }));
 
   const submitTestDrive = async () => {
     if (!testDriveForm.vehicleId) {
@@ -225,6 +297,19 @@ export default function BuyerDetail() {
     }
     if (!testDriveForm.date || !testDriveForm.time) {
       toast({ title: "Pick date & time", variant: "destructive" });
+      return;
+    }
+    // Staff assignment is mandatory — a test drive needs someone responsible.
+    if (!testDriveForm.assignedTo) {
+      toast({ title: "Assign a staff member", description: "Select who runs this test drive.", variant: "destructive" });
+      return;
+    }
+    if (testDriveForm.meetingType === "physical" && !testDriveForm.location.trim()) {
+      toast({ title: "Add a location", description: "Enter where the test drive happens.", variant: "destructive" });
+      return;
+    }
+    if (testDriveForm.meetingType === "virtual" && !testDriveForm.createMeet && !testDriveForm.meetLink.trim()) {
+      toast({ title: "Add a link", description: "Paste a meeting link or tick “Create Google Meet link”.", variant: "destructive" });
       return;
     }
     const start = new Date(`${testDriveForm.date}T${testDriveForm.time}:00`);
@@ -238,38 +323,37 @@ export default function BuyerDetail() {
       vehiclesQuery.data?.data.find((v) => v.id === testDriveForm.vehicleId)?.title ??
       "Vehicle";
 
+    // Buyer is auto-added as a participant (so the event shows in their
+    // filtered calendar), plus any extra staff the user picked (deduped).
+    const participants: ParticipantInput[] = [
+      { userType: "buyer" as const, userId: buyer.id, name: buyer.name, email: buyer.email },
+      ...testDriveForm.participants,
+    ];
+
     try {
       await bookTestDrive.mutateAsync({
         vehicleId: testDriveForm.vehicleId,
         vehicleTitle,
         scheduledAt: start.toISOString(),
-        assignedTo: testDriveForm.assignedTo || undefined,
+        assignedTo: testDriveForm.assignedTo,
         notes: testDriveForm.notes || undefined,
       });
       try {
         await createCalendarEvent.mutateAsync({
           title: `Test Drive — ${vehicleTitle}`,
           type: "testDrive",
-          // Test drives are in-person — explicit so the schema default
-          // doesn't drift and the detail dialog renders the right block.
-          meetingType: "physical",
+          meetingType: testDriveForm.meetingType,
+          createMeetLink: testDriveForm.meetingType === "virtual" ? testDriveForm.createMeet : undefined,
+          meetLink: testDriveForm.meetingType === "virtual" ? testDriveForm.meetLink.trim() || undefined : undefined,
+          location: testDriveForm.meetingType === "physical" ? testDriveForm.location.trim() || undefined : undefined,
           startDateTime: start.toISOString(),
           endDateTime: end.toISOString(),
           customerName: buyer.name,
           customerEmail: buyer.email,
           customerPhone: buyer.phone,
           vehicleId: testDriveForm.vehicleId,
-          assignedToId: testDriveForm.assignedTo || undefined,
-          // Add the buyer as a participant so the event shows up in the
-          // buyer's filtered "My calendar" view, not just the staff's.
-          participants: [
-            {
-              userType: "buyer" as const,
-              userId: buyer.id,
-              name: buyer.name,
-              email: buyer.email,
-            },
-          ],
+          assignedToId: testDriveForm.assignedTo,
+          participants,
           notes: testDriveForm.notes || undefined,
         });
       } catch (err) {
@@ -343,6 +427,13 @@ export default function BuyerDetail() {
   const availableVehicles = (vehiclesQuery.data?.data ?? []).filter((v) => !interestedIdSet.has(v.id));
   const staffOptions = staffQuery.data ?? [];
 
+  // Legacy history entries with no matching calendar event still show, so
+  // pre-calendar bookings aren't lost; matching is by vehicle + day to avoid
+  // double-listing. (calendarTestDrives is memoised above the early returns.)
+  const calTdKeys = new Set(calendarTestDrives.map((e) => `${e.vehicleId ?? ""}|${e.dateKey}`));
+  const legacyTestDrives = buyer.testDrives.filter((t) => !calTdKeys.has(`${t.vehicleId}|${t.date}`));
+  const testDriveCount = calendarTestDrives.length + legacyTestDrives.length;
+
   return (
     <div className="animate-fade-in space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -415,7 +506,7 @@ export default function BuyerDetail() {
 
         <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Kpi icon={Heart} color="bg-rose-50 text-rose-600" value={buyer.interestedVehicles.length} label="Vehicles Interested" />
-          <Kpi icon={CalendarDays} color="bg-amber-50 text-amber-600" value={buyer.testDrives.length} label="Test Drives Booked" />
+          <Kpi icon={CalendarDays} color="bg-amber-50 text-amber-600" value={testDriveCount} label="Test Drives Booked" />
           <Kpi icon={ShoppingBag} color="bg-emerald-50 text-emerald-600" value={buyer.purchases.length} label="Purchased" />
         </div>
       </div>
@@ -512,7 +603,7 @@ export default function BuyerDetail() {
               </button>
             )}
           </div>
-          {buyer.purchases.length === 0 && buyer.testDrives.length === 0 ? (
+          {buyer.purchases.length === 0 && testDriveCount === 0 ? (
             <p className="text-sm text-muted-foreground py-6 text-center">No test drives or purchases yet.</p>
           ) : (
             <div className="space-y-2">
@@ -535,16 +626,51 @@ export default function BuyerDetail() {
                   </span>
                 </div>
               ))}
-              {buyer.testDrives.map((t, i) => (
-                <div key={`td-${i}`} className="flex items-center gap-3 p-2 border rounded-lg">
-                  <CalendarDays className="h-4 w-4 text-primary" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{t.vehicleTitle || `Vehicle ${t.vehicleId.slice(-6)}`}</p>
-                    <p className="text-xs text-muted-foreground">{t.date}</p>
+              {/* Real calendar test-drive events */}
+              {calendarTestDrives.map((e) => {
+                const meta = tdStatusMeta(e.start.getTime(), e.status, Date.now());
+                return (
+                  <div
+                    key={`cal-${e.id}`}
+                    onClick={() => e.vehicleId && navigate(`/inventory/${e.vehicleId}`)}
+                    className={`flex items-center gap-3 p-2 border rounded-lg ${e.vehicleId ? "cursor-pointer hover:bg-muted/60" : ""}`}
+                  >
+                    <CalendarDays className="h-4 w-4 text-primary shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{e.vehicleTitle || e.title}</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                        <span>{e.dateKey} · {e.time}</span>
+                        <span className="inline-flex items-center gap-1">
+                          {e.meetingType === "virtual" ? <Video className="h-3 w-3" /> : <MapPin className="h-3 w-3" />}
+                          {e.meetingType === "virtual"
+                            ? (e.meetLink ? "Virtual" : "Virtual — no link")
+                            : (e.location || "Physical")}
+                        </span>
+                        {e.assignedToName && <span>· {e.assignedToName}</span>}
+                      </p>
+                    </div>
+                    {meta && <span className={`status-badge shrink-0 ${meta.cls}`}>{meta.label}</span>}
                   </div>
-                  <span className="status-badge bg-blue-100 text-blue-700">{t.status}</span>
-                </div>
-              ))}
+                );
+              })}
+              {/* Legacy history-only test drives (pre-calendar bookings) */}
+              {legacyTestDrives.map((t, i) => {
+                const m = tdStatusMeta(
+                  t.date ? new Date(`${t.date}T23:59:59`).getTime() : Date.now(),
+                  "scheduled",
+                  Date.now(),
+                );
+                return (
+                  <div key={`td-${i}`} className="flex items-center gap-3 p-2 border rounded-lg">
+                    <CalendarDays className="h-4 w-4 text-primary" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{t.vehicleTitle || `Vehicle ${t.vehicleId.slice(-6)}`}</p>
+                      <p className="text-xs text-muted-foreground">{t.date}</p>
+                    </div>
+                    {m && <span className={`status-badge ${m.cls}`}>{m.label}</span>}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -687,24 +813,124 @@ export default function BuyerDetail() {
               </div>
             </div>
             <div>
-              <label className="text-[11px] text-muted-foreground">Assign to staff</label>
+              <label className="text-[11px] text-muted-foreground">Assign to staff *</label>
               <Select
-                value={testDriveForm.assignedTo || UNASSIGNED}
-                onValueChange={(v) => setTestDriveForm({ ...testDriveForm, assignedTo: v === UNASSIGNED ? "" : v })}
+                value={testDriveForm.assignedTo || undefined}
+                onValueChange={(v) => setTestDriveForm({ ...testDriveForm, assignedTo: v })}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Unassigned" />
+                  <SelectValue placeholder="Select staff…" />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
-                  <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
                   {staffOptions.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
-                      {s.name}{s.roleName ? ` · ${s.roleName}` : ""}
+                      {s.name}{s.roleName ? ` · ${s.roleName}` : ""}{currentUser?._id === s.id ? " (you)" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {!testDriveForm.assignedTo && (
+                <p className="text-[10px] text-amber-700 mt-0.5">Required — a test drive needs a responsible staff member.</p>
+              )}
             </div>
+
+            {/* Meeting type — physical (location) or virtual (paste/create link). */}
+            <div className="border rounded-lg p-2.5 space-y-2 bg-muted/30">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Meeting type</p>
+              <div className="flex gap-3 text-sm">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={testDriveForm.meetingType === "physical"}
+                    onChange={() => setTestDriveForm({ ...testDriveForm, meetingType: "physical", createMeet: false })}
+                  />
+                  <MapPin className="h-3.5 w-3.5" /> Physical
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={testDriveForm.meetingType === "virtual"}
+                    onChange={() => setTestDriveForm({ ...testDriveForm, meetingType: "virtual" })}
+                  />
+                  <Video className="h-3.5 w-3.5" /> Virtual
+                </label>
+              </div>
+              {testDriveForm.meetingType === "physical" ? (
+                <input
+                  value={testDriveForm.location}
+                  onChange={(e) => setTestDriveForm({ ...testDriveForm, location: e.target.value })}
+                  placeholder="Address or place *"
+                  className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                />
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={testDriveForm.createMeet}
+                      onChange={(e) => setTestDriveForm({ ...testDriveForm, createMeet: e.target.checked })}
+                    />
+                    <Video className="h-3.5 w-3.5 text-violet-500" /> Create Google Meet link
+                  </label>
+                  <input
+                    value={testDriveForm.meetLink}
+                    onChange={(e) => setTestDriveForm({ ...testDriveForm, meetLink: e.target.value })}
+                    placeholder="Or paste an existing meet/zoom/teams link"
+                    className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                    disabled={testDriveForm.createMeet}
+                  />
+                  {testDriveForm.createMeet && (
+                    <p className="text-[10px] text-muted-foreground">A Google Meet link is generated when you save.</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Participants — buyer is auto-added; add extra staff here. */}
+            <div className="border rounded-lg p-2.5 space-y-2 bg-muted/20">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Participants</p>
+              <div className="flex gap-2">
+                <select
+                  value={participantPick}
+                  onChange={(e) => setParticipantPick(e.target.value)}
+                  className="flex-1 border rounded-md px-2 py-1.5 text-sm bg-background"
+                >
+                  <option value="">Add staff…</option>
+                  {staffOptions
+                    .filter((s) => !testDriveForm.participants.some((p) => p.userId === s.id))
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={addTdParticipant}
+                  disabled={!participantPick}
+                  className="px-2.5 py-1.5 rounded-md bg-muted text-sm font-medium hover:bg-muted/80 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">{buyer.name} (buyer) is added automatically.</p>
+              {testDriveForm.participants.length > 0 && (
+                <ul className="space-y-1">
+                  {testDriveForm.participants.map((p) => (
+                    <li key={p.userId} className="flex items-center justify-between text-sm bg-background border rounded-md px-2 py-1">
+                      <span className="truncate">{p.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeTdParticipant(p.userId)}
+                        className="text-muted-foreground hover:text-red-600 shrink-0"
+                        title="Remove participant"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             <input
               value={testDriveForm.notes}
               onChange={(e) => setTestDriveForm({ ...testDriveForm, notes: e.target.value })}
@@ -716,7 +942,7 @@ export default function BuyerDetail() {
             <button onClick={() => setTestDriveOpen(false)} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
             <button
               onClick={submitTestDrive}
-              disabled={bookTestDrive.isPending || createCalendarEvent.isPending}
+              disabled={bookTestDrive.isPending || createCalendarEvent.isPending || !testDriveForm.assignedTo}
               className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-60"
             >
               {(bookTestDrive.isPending || createCalendarEvent.isPending) && <Loader2 className="h-4 w-4 animate-spin" />}

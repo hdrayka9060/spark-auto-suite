@@ -38,6 +38,47 @@ export interface CalendarFilter {
   userType?: ParticipantType;
 }
 
+// ── Attendee directory ──────────────────────────────────────────────────────
+// Minimal staff/buyers/sellers/leads lists for the calendar's pickers, served
+// by GET /calendar/directory (gated by Calendar:view). Using this instead of
+// the CRM/Staff list hooks means a user with only Calendar permission can still
+// populate the "view calendar of" combobox, the participant picker, and the
+// link-to-lead dropdown — the CRM list endpoints require CRM/Staff read perms
+// that non-admin calendar roles don't have.
+
+export interface DirectoryPerson {
+  id: string;
+  name: string;
+  email: string;
+}
+export interface DirectoryContact extends DirectoryPerson {
+  phone: string;
+}
+export interface DirectoryLead {
+  id: string;
+  buyerId: string;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone: string;
+  vehicleId: string;
+  vehicleTitle: string;
+  status: string;
+}
+export interface CalendarDirectory {
+  staff: DirectoryPerson[];
+  buyers: DirectoryContact[];
+  sellers: DirectoryContact[];
+  leads: DirectoryLead[];
+}
+
+export function useCalendarDirectory() {
+  return useQuery({
+    queryKey: [...CALENDAR_KEY, "directory"],
+    queryFn: async () => api<CalendarDirectory>("/calendar/directory"),
+    staleTime: 60_000,
+  });
+}
+
 export function useCalendarEvents(range: CalendarRange, filter: CalendarFilter = {}) {
   return useQuery({
     queryKey: [...CALENDAR_KEY, "list", range, filter],

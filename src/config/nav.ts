@@ -57,11 +57,11 @@ export const navItems: NavItem[] = [
   { label: "Accounting", icon: DollarSign, path: "/accounting" },
   // Hidden pending rebuild — keep entries so routing/permissions still resolve.
   { label: "BHPH", icon: CreditCard, path: "/bhph", hidden: true },
-  { label: "Digital Marketing", icon: Megaphone, path: "/marketing" },
   { label: "Dealer Website", icon: Globe, path: "/dealer-website" },
+  { label: "Facebook Listings", icon: Facebook, path: "/facebook" },
+  { label: "Digital Marketing", icon: Megaphone, path: "/marketing" },
   // Hidden per request — keep entry so routing/permissions still resolve.
   { label: "Dealer Marketplace", icon: Store, path: "/marketplace", hidden: true },
-  { label: "Facebook Listings", icon: Facebook, path: "/facebook" },
   { label: "Calendar", icon: CalendarDays, path: "/calendar" },
   { label: "Communication", icon: MessageSquare, path: "/communication" },
   { label: "Support", icon: HeadphonesIcon, path: "/support", hidden: true },

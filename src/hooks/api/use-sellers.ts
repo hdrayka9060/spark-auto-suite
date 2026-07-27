@@ -186,3 +186,32 @@ export function useLogSellerCommunication(id: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: SELLERS_KEY }),
   });
 }
+
+/** Edit a logged communication's message (and/or channel). */
+export function useUpdateSellerCommunication(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ commId, message, channel }: { commId: string; message?: string; channel?: SellerCommunicationChannel }): Promise<Seller> => {
+      const updated = await api<ServerSellerLead>(`/crm/sellers/${id}/communicate/${commId}`, {
+        method: "PATCH",
+        body: { message, channel },
+      });
+      return toClientSeller(updated);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: SELLERS_KEY }),
+  });
+}
+
+/** Delete a single logged communication entry. */
+export function useDeleteSellerCommunication(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (commId: string): Promise<Seller> => {
+      const updated = await api<ServerSellerLead>(`/crm/sellers/${id}/communicate/${commId}`, {
+        method: "DELETE",
+      });
+      return toClientSeller(updated);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: SELLERS_KEY }),
+  });
+}

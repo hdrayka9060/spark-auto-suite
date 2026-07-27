@@ -10,17 +10,42 @@
  * enum on write, and pretty-printed back on read.
  */
 
-export type ServerVehicleStatus =
-  | "new"
-  | "inspection"
-  | "unsold"
-  | "test_drive"
-  | "reserved"
-  | "pending"
-  | "sold";
+// Vehicle lifecycle collapsed to New / Sold / no-status(""). "" = available.
+export type ServerVehicleStatus = "new" | "sold" | "";
 export type ServerHosting = "self" | "platform";
 export type ServerFuelType = "petrol" | "diesel" | "electric" | "hybrid" | "cng";
 export type ServerTransmission = "manual" | "automatic" | "cvt";
+
+/**
+ * Dropdown option lists for the vehicle forms. Fuel + Transmission values ARE
+ * the backend enum values (so they persist verbatim); the label is display-only.
+ */
+export const FUEL_OPTIONS: { value: ServerFuelType; label: string }[] = [
+  { value: "petrol", label: "Petrol / Gasoline" },
+  { value: "diesel", label: "Diesel" },
+  { value: "electric", label: "Electric" },
+  { value: "hybrid", label: "Hybrid" },
+  { value: "cng", label: "CNG" },
+];
+export const TRANSMISSION_OPTIONS: { value: ServerTransmission; label: string }[] = [
+  { value: "manual", label: "Manual" },
+  { value: "automatic", label: "Automatic" },
+  { value: "cvt", label: "CVT" },
+];
+
+/**
+ * Engine configurations offered by the vehicle form's Engine dropdown. Kept
+ * coarse on purpose; anything the VIN decoder returns that doesn't match one of
+ * these (e.g. "2.5L · 4-cyl · 170hp") is handled via the form's "Other" escape,
+ * which keeps the free-text detail rather than discarding it.
+ */
+export const ENGINE_OPTIONS = [
+  "3-Cylinder", "4-Cylinder", "5-Cylinder", "6-Cylinder",
+  "V6", "V8", "V10", "V12", "Electric", "Hybrid", "Rotary",
+] as const;
+
+/** Drive-configuration options (VIN decoder normalizes NHTSA DriveType onto these). */
+export const DRIVETRAIN_OPTIONS = ["FWD", "RWD", "AWD", "4X4"] as const;
 
 /**
  * Canonical body-type list rendered by every vehicle form. Kept short on
@@ -89,8 +114,14 @@ export interface ServerVehicle {
   bodyType: string;
   trim: string;
   engine: string;
+  drivetrain?: string;
+  engineSize?: string;
+  interiorColor?: string;
+  doors?: number;
   status: ServerVehicleStatus;
   hosting: ServerHosting;
+  /** Deliberate "show on public dealer website" flag. */
+  publishedToWebsite?: boolean;
   features: string[];
   history: { field: string; value: string; changedAt: string; changedBy: string }[];
   spends?: { _id: string; amount: number; category: string; description: string; date: string; by?: string }[];
@@ -118,8 +149,11 @@ export interface Vehicle {
   soldAt: number;
   soldDate: string | null;
   owners: number;
-  status: "New" | "Inspection" | "Unsold" | "Test Drive" | "Reserved" | "Pending" | "Sold";
+  /** "Available" = no status (no badge). Only New / Sold carry a badge. */
+  status: "New" | "Sold" | "Available";
   hosting: "Self" | "Platform";
+  /** Whether the vehicle is published on the public dealer website. */
+  published: boolean;
   image: string;
   description: string;
   vin: string;
@@ -129,6 +163,12 @@ export interface Vehicle {
   bodyType: string;
   trim: string;
   engine: string;
+  drivetrain: string;
+  engineSize: string;
+  interiorColor: string;
+  doors: number;
+  /** ISO timestamp the vehicle was added — drives the "New this week" tag. */
+  createdAt: string;
   gallery: string[];
   history: { date: string; event: string; detail: string }[];
   /** Reconditioning spends recorded before the sale (cost-of-goods). */
@@ -187,8 +227,18 @@ export interface VehicleFormInput {
   bodyType?: string;
   trim?: string;
   engine?: string;
+  /** Drive configuration ("FWD" / "AWD" / "4X4" / "RWD"). */
+  drivetrain?: string;
+  /** Engine displacement, e.g. "2.5 L". */
+  engineSize?: string;
+  /** Interior colour (exterior colour is `color`). */
+  interiorColor?: string;
+  /** Number of doors. */
+  doors?: number;
   description?: string;
   hosting?: "Self" | "Platform";
+  /** Linked SellerLead id. Required when hosting = Platform. */
+  seller?: string | null;
 }
 
 // ── Capitalization helpers ────────────────────────────────────────────────
@@ -197,42 +247,30 @@ const capitalize = (s?: string): string => (s ? s.charAt(0).toUpperCase() + s.sl
 
 const STATUS_TO_CLIENT: Record<ServerVehicleStatus, Vehicle["status"]> = {
   new: "New",
-  inspection: "Inspection",
-  unsold: "Unsold",
-  test_drive: "Test Drive",
-  reserved: "Reserved",
-  pending: "Pending",
   sold: "Sold",
+  "": "Available",
 };
 const STATUS_TO_SERVER: Record<Vehicle["status"], ServerVehicleStatus> = {
   New: "new",
-  Inspection: "inspection",
-  Unsold: "unsold",
-  "Test Drive": "test_drive",
-  Reserved: "reserved",
-  Pending: "pending",
   Sold: "sold",
+  Available: "",
 };
 
 /** Canonical ordered list of all client-facing statuses (used by filter pills + dropdowns). */
 export const ALL_VEHICLE_STATUSES: Vehicle["status"][] = [
   "New",
-  "Inspection",
-  "Unsold",
-  "Test Drive",
-  "Reserved",
-  "Pending",
+  "Available",
   "Sold",
 ];
 
-/** Color theme per status — used by Inventory cards/table + VehicleDetail badge. */
+/**
+ * Color theme per status — used by Inventory cards/table + VehicleDetail badge.
+ * "Available" (no status) intentionally has no badge styling; render sites
+ * should skip the badge entirely for it.
+ */
 export const VEHICLE_STATUS_BADGE_CLASS: Record<Vehicle["status"], string> = {
   New: "bg-cyan-100 text-cyan-700",
-  Inspection: "bg-violet-100 text-violet-700",
-  Unsold: "bg-blue-100 text-blue-700",
-  "Test Drive": "bg-amber-100 text-amber-700",
-  Reserved: "bg-orange-100 text-orange-700",
-  Pending: "bg-yellow-100 text-yellow-800",
+  Available: "",
   Sold: "bg-emerald-100 text-emerald-700",
 };
 
@@ -294,6 +332,9 @@ export interface DecodedVin {
   fuel?: string;
   transmission?: string;
   bodyType?: string;
+  drivetrain?: string;
+  engineSize?: string;
+  doors?: number;
   plant?: string;
   country?: string;
   title?: string;
@@ -311,9 +352,21 @@ export function decodedVinToFormPatch(d: DecodedVin): Record<string, string> {
   if (d.modelYear) p.year = String(d.modelYear);
   if (d.trim) p.trim = d.trim;
   if (d.engine) p.engine = d.engine;
-  if (d.fuel) p.fuel = d.fuel;
-  if (d.transmission) p.transmission = d.transmission;
+  // Normalize the raw NHTSA fuel/transmission strings to the backend enum values
+  // so the form's dropdowns pre-select instead of showing a blank (the option
+  // values ARE the enum values). Falls back to leaving the field untouched.
+  if (d.fuel) {
+    const f = normalizeFuelType(d.fuel);
+    if (f) p.fuel = f;
+  }
+  if (d.transmission) {
+    const t = normalizeTransmission(d.transmission);
+    if (t) p.transmission = t;
+  }
   if (d.bodyType) p.bodyType = d.bodyType;
+  if (d.drivetrain) p.drivetrain = d.drivetrain;
+  if (d.engineSize) p.engineSize = d.engineSize;
+  if (d.doors !== undefined && d.doors !== null) p.doors = String(d.doors);
   if (d.plant) p.plant = d.plant;
   if (d.country) p.country = d.country;
   if (d.title) p.title = d.title;
@@ -339,8 +392,10 @@ export function toClientVehicle(s: ServerVehicle): Vehicle {
     soldAt: s.soldAt ?? 0,
     soldDate: s.soldDate ?? null,
     owners: s.owners,
-    status: STATUS_TO_CLIENT[s.status] ?? "Unsold",
+    status: STATUS_TO_CLIENT[s.status] ?? "Available",
     hosting: HOSTING_TO_CLIENT[s.hosting] ?? "Platform",
+    // Default true for legacy docs written before the flag existed.
+    published: s.publishedToWebsite ?? true,
     image: s.photos?.[0] ?? FALLBACK_IMAGE,
     description: s.description ?? "",
     vin: s.vin ?? "",
@@ -350,6 +405,11 @@ export function toClientVehicle(s: ServerVehicle): Vehicle {
     bodyType: s.bodyType ?? "",
     trim: s.trim ?? "",
     engine: s.engine ?? "",
+    drivetrain: s.drivetrain ?? "",
+    engineSize: s.engineSize ?? "",
+    interiorColor: s.interiorColor ?? "",
+    doors: s.doors ?? 0,
+    createdAt: s.createdAt ?? "",
     gallery: s.photos?.length ? s.photos : [FALLBACK_IMAGE],
     history: (s.history ?? []).map((h) => ({
       date: h.changedAt?.slice(0, 10) ?? "",
@@ -396,8 +456,13 @@ export interface ServerCreateVehiclePayload {
   bodyType?: string;
   trim?: string;
   engine?: string;
+  drivetrain?: string;
+  engineSize?: string;
+  interiorColor?: string;
+  doors?: number;
   description?: string;
   hosting?: ServerHosting;
+  seller?: string | null;
 }
 
 export function toServerCreatePayload(input: VehicleFormInput): ServerCreateVehiclePayload {
@@ -417,8 +482,15 @@ export function toServerCreatePayload(input: VehicleFormInput): ServerCreateVehi
   if (input.bodyType) payload.bodyType = input.bodyType;
   if (input.trim) payload.trim = input.trim;
   if (input.engine) payload.engine = input.engine;
+  if (input.drivetrain) payload.drivetrain = input.drivetrain;
+  if (input.engineSize) payload.engineSize = input.engineSize;
+  if (input.interiorColor) payload.interiorColor = input.interiorColor;
+  if (input.doors !== undefined) payload.doors = input.doors;
   if (input.description) payload.description = input.description;
   if (input.hosting) payload.hosting = HOSTING_TO_SERVER[input.hosting];
+  // Only send a seller link when one is actually chosen. Empty string / null =
+  // "Self" (in-house), which the backend treats as no seller.
+  if (input.seller) payload.seller = input.seller;
   const fuel = normalizeFuelType(input.fuel);
   if (fuel) payload.fuelType = fuel;
   const trans = normalizeTransmission(input.transmission);
@@ -438,6 +510,7 @@ export interface ServerUpdateVehiclePayload {
   costPrice?: number;
   status?: ServerVehicleStatus;
   hosting?: ServerHosting;
+  publishedToWebsite?: boolean;
   color?: string;
   vin?: string;
   bodyType?: string;

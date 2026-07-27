@@ -13,6 +13,12 @@ export interface ServerDashboardStatBlock {
   totalVehicles: number;
   vehiclesSold: number;
   totalRevenue: number;
+  // Full-cost expenses (Operational + Reconditioning + Cost-of-vehicles-sold),
+  // matching the Accounting page. Components carried through for future use.
+  totalExpenses: number;
+  totalOperational?: number;
+  totalReconditioning?: number;
+  totalCostOfVehicles?: number;
   totalProfit: number;
   activeLeads: number;
   pendingTestDrives: number;

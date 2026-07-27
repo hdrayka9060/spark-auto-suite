@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  AlertCircle, ArrowLeft, CalendarDays, Copy, Edit, Loader2, Mail, Phone, Plus, Save, Trash2,
+  AlertCircle, ArrowLeft, CalendarDays, Copy, Edit, Loader2, Mail, MapPin, Phone, Plus,
+  Save, Trash2, Video, X,
 } from "lucide-react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import {
@@ -9,8 +10,10 @@ import {
 } from "@/hooks/api/use-leads";
 import { useCreateCalendarEvent } from "@/hooks/api/use-calendar";
 import { useStaff } from "@/hooks/api/use-staff";
-import { useVehicles } from "@/hooks/api/use-vehicles";
+import { useVehicle, useVehicles } from "@/hooks/api/use-vehicles";
+import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
+import { ClientMeetingType, ParticipantInput } from "@/lib/calendar-mapper";
 import {
   ALL_LEAD_CHANNELS, ALL_LEAD_STATUSES, ClientLeadChannel, ClientLeadStatus, LeadLogEntry,
 } from "@/lib/lead-mapper";
@@ -47,6 +50,7 @@ const channelColors: Record<ClientLeadChannel, string> = {
   WhatsApp: "bg-emerald-100 text-emerald-700",
   SMS: "bg-amber-100 text-amber-700",
   Offline: "bg-slate-100 text-slate-700",
+  Website: "bg-cyan-100 text-cyan-700",
 };
 
 const seedLogForm = (): LeadLogInput & { id?: string } => ({
@@ -71,6 +75,9 @@ export default function LeadDetail() {
   const deleteLog = useDeleteLeadLog(id ?? "");
   const staffQuery = useStaff();
   const vehiclesQuery = useVehicles({ limit: 100 });
+  const leadVehicleQuery = useVehicle(leadQuery.data?.vehicleId);
+  const { state: authState } = useAuth();
+  const currentUser = authState.user;
   const canEdit = useCan("Leads & Sales", "edit");
   const canDelete = useCan("Leads & Sales", "delete");
   const confirm = useConfirm();
@@ -87,7 +94,13 @@ export default function LeadDetail() {
     time: "10:00",
     assignedTo: "",
     notes: "",
+    meetingType: "physical" as ClientMeetingType,
+    location: "",
+    createMeet: false,
+    meetLink: "",
+    participants: [] as ParticipantInput[],
   });
+  const [tdParticipantPick, setTdParticipantPick] = useState("");
 
 
   const [logDialogOpen, setLogDialogOpen] = useState(false);
@@ -108,11 +121,12 @@ export default function LeadDetail() {
   useEffect(() => {
     if (leadQuery.data) {
       setStatus(leadQuery.data.status);
-      setAssigneeId(leadQuery.data.assignedToId ?? "");
+      // Leads are never unassigned — fall back to the current user.
+      setAssigneeId(leadQuery.data.assignedToId || currentUser?._id || "");
       setNotes(leadQuery.data.notes);
       setAskedPrice(leadQuery.data.askedPrice > 0 ? String(leadQuery.data.askedPrice) : "");
     }
-  }, [leadQuery.data]);
+  }, [leadQuery.data, currentUser]);
 
   const lead = leadQuery.data;
   const back = () => navigate("/leads", { state: location.state });
@@ -183,9 +197,35 @@ export default function LeadDetail() {
     }
   };
 
+  const addTdParticipant = () => {
+    if (!tdParticipantPick) return;
+    const staff = staffOptions.find((s) => s.id === tdParticipantPick);
+    if (!staff) return;
+    if (tdForm.participants.some((p) => p.userId === staff.id)) { setTdParticipantPick(""); return; }
+    setTdForm((f) => ({
+      ...f,
+      participants: [...f.participants, { userType: "staff", userId: staff.id, name: staff.name, email: staff.email || undefined }],
+    }));
+    setTdParticipantPick("");
+  };
+  const removeTdParticipant = (userId?: string) =>
+    setTdForm((f) => ({ ...f, participants: f.participants.filter((p) => p.userId !== userId) }));
+
   const submitTd = async () => {
     if (!tdForm.date || !tdForm.time) {
       toast({ title: "Pick date & time", variant: "destructive" });
+      return;
+    }
+    if (!tdForm.assignedTo) {
+      toast({ title: "Assign a staff member", description: "Select who runs this test drive.", variant: "destructive" });
+      return;
+    }
+    if (tdForm.meetingType === "physical" && !tdForm.location.trim()) {
+      toast({ title: "Add a location", description: "Enter where the test drive happens.", variant: "destructive" });
+      return;
+    }
+    if (tdForm.meetingType === "virtual" && !tdForm.createMeet && !tdForm.meetLink.trim()) {
+      toast({ title: "Add a link", description: "Paste a meeting link or tick “Create Google Meet link”.", variant: "destructive" });
       return;
     }
     const start = new Date(`${tdForm.date}T${tdForm.time}:00`);
@@ -194,20 +234,30 @@ export default function LeadDetail() {
       return;
     }
     const end = new Date(start.getTime() + 60 * 60 * 1000);
+
+    // Buyer is auto-added as a participant (so the event surfaces in their
+    // filtered calendar), plus any extra staff picked (deduped).
+    const participants: ParticipantInput[] = [
+      ...(lead.buyerId
+        ? [{ userType: "buyer" as const, userId: lead.buyerId, name: lead.buyerName, email: lead.buyerEmail }]
+        : []),
+      ...tdForm.participants,
+    ];
+
     try {
       await bookTestDrive.mutateAsync({
         scheduledAt: start.toISOString(),
-        assignedTo: tdForm.assignedTo || undefined,
+        assignedTo: tdForm.assignedTo,
         notes: tdForm.notes || undefined,
       });
       try {
         await createCalendarEvent.mutateAsync({
           title: `Test Drive — ${lead.vehicleTitle}`,
           type: "testDrive",
-          // Test drives happen in-person — explicit so the schema default
-          // doesn't drift, and so the event detail dialog renders the
-          // "physical" location section instead of expecting a Meet link.
-          meetingType: "physical",
+          meetingType: tdForm.meetingType,
+          createMeetLink: tdForm.meetingType === "virtual" ? tdForm.createMeet : undefined,
+          meetLink: tdForm.meetingType === "virtual" ? tdForm.meetLink.trim() || undefined : undefined,
+          location: tdForm.meetingType === "physical" ? tdForm.location.trim() || undefined : undefined,
           startDateTime: start.toISOString(),
           endDateTime: end.toISOString(),
           customerName: lead.buyerName,
@@ -217,23 +267,8 @@ export default function LeadDetail() {
           // Link the test-drive event to the lead so it also surfaces on the
           // buyer portal's "Your Appointments" + the lead timeline.
           lead: lead.id,
-          assignedToId: tdForm.assignedTo || undefined,
-          // Attach the buyer as a participant so they appear in the
-          // buyer's filtered calendar view too — without this the buyer
-          // could only ever see the event in "All calendars" mode, which
-          // is the user-reported bug.
-          ...(lead.buyerId
-            ? {
-                participants: [
-                  {
-                    userType: "buyer" as const,
-                    userId: lead.buyerId,
-                    name: lead.buyerName,
-                    email: lead.buyerEmail,
-                  },
-                ],
-              }
-            : {}),
+          assignedToId: tdForm.assignedTo,
+          participants: participants.length ? participants : undefined,
           notes: tdForm.notes || undefined,
         });
       } catch (err) {
@@ -386,6 +421,30 @@ export default function LeadDetail() {
   const staffOptions = staffQuery.data ?? [];
   const vehicleOptions = vehiclesQuery.data?.data ?? [];
 
+  // Terminal-state gating: a closed lead can only be archived; an archived lead
+  // can't move at all. Both lock assignee / asked-price / test-drive.
+  const isClosed = lead.status === "Closed";
+  const isArchived = lead.status === "Archived";
+  const isTerminal = isClosed || isArchived;
+  const statusOptions: ClientLeadStatus[] = isClosed
+    ? ["Closed", "Archived"]
+    : isArchived
+      ? ["Archived"]
+      : ALL_LEAD_STATUSES; // active leads can move anywhere (Closed opens the sale dialog)
+
+  // Sale summary (shown once closed). Sold price + full cost basis
+  // (acquisition + reconditioning) → gross margin, matching the project's
+  // profit definition (revenue − cost, expenses excluded).
+  const soldVehicle = leadVehicleQuery.data;
+  const saleSummary =
+    isClosed && soldVehicle
+      ? {
+          soldPrice: soldVehicle.soldAt || 0,
+          costPrice: (soldVehicle.costPrice || 0) + (soldVehicle.totalSpend || 0),
+        }
+      : null;
+  const grossMargin = saleSummary ? saleSummary.soldPrice - saleSummary.costPrice : 0;
+
   return (
     <div className="animate-fade-in space-y-6">
       <BackBtn onClick={back} />
@@ -446,39 +505,48 @@ export default function LeadDetail() {
           <h3 className="font-display font-semibold text-sm uppercase text-muted-foreground tracking-wide">Update Lead</h3>
           <div>
             <label className="text-xs text-muted-foreground">Status</label>
-            <Select value={status} onValueChange={(v) => setStatus(v as ClientLeadStatus)} disabled={!canEdit}>
+            <Select
+              value={status}
+              onValueChange={(v) => setStatus(v as ClientLeadStatus)}
+              disabled={!canEdit || isArchived}
+            >
               <SelectTrigger className="w-full mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {ALL_LEAD_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                {statusOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
+            {isClosed && (
+              <p className="text-[10px] text-muted-foreground mt-1">Closed — can only be archived (voids the sale).</p>
+            )}
+            {isArchived && (
+              <p className="text-[10px] text-muted-foreground mt-1">Archived is final — this lead can't be reopened.</p>
+            )}
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Assigned Staff</label>
             <Select
-              value={assigneeId || NONE}
-              onValueChange={(v) => setAssigneeId(v === NONE ? "" : v)}
-              disabled={!canEdit}
+              value={assigneeId || undefined}
+              onValueChange={(v) => setAssigneeId(v)}
+              disabled={!canEdit || isTerminal}
             >
-              <SelectTrigger className="w-full mt-1"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+              <SelectTrigger className="w-full mt-1"><SelectValue placeholder="Select staff…" /></SelectTrigger>
               <SelectContent className="max-h-72">
-                <SelectItem value={NONE}>Unassigned</SelectItem>
                 {staffOptions.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}{s.roleName ? ` · ${s.roleName}` : ""}</SelectItem>
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}{s.roleName ? ` · ${s.roleName}` : ""}{s.id === currentUser?._id ? " (you)" : ""}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">
-              Asked price <span className="text-[10px]">(auto-moves lead to Negotiation)</span>
-            </label>
+            <label className="text-xs text-muted-foreground">Asked price</label>
             <input
               type="number"
               value={askedPrice}
               onChange={(e) => setAskedPrice(e.target.value)}
               placeholder="0"
-              disabled={!canEdit}
+              disabled={!canEdit || isTerminal}
               className="w-full mt-1 border rounded-lg px-3 py-2 text-sm bg-background disabled:opacity-60"
             />
           </div>
@@ -492,19 +560,55 @@ export default function LeadDetail() {
                 {updateLead.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Save Changes
               </button>
-              <button
-                onClick={() => {
-                  setTdForm({ date: "", time: "10:00", assignedTo: assigneeId, notes: "" });
-                  setTdDialogOpen(true);
-                }}
-                className="w-full flex items-center justify-center gap-2 bg-muted py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
-              >
-                <CalendarDays className="h-4 w-4" /> Book test drive
-              </button>
+              {!isTerminal && (
+                <button
+                  onClick={() => {
+                    setTdForm({
+                      date: "", time: "10:00", assignedTo: assigneeId || currentUser?._id || "", notes: "",
+                      meetingType: "physical", location: "", createMeet: false, meetLink: "", participants: [],
+                    });
+                    setTdParticipantPick("");
+                    setTdDialogOpen(true);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 bg-muted py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
+                >
+                  <CalendarDays className="h-4 w-4" /> Book test drive
+                </button>
+              )}
             </>
           )}
         </div>
       </div>
+
+      {/* Sale summary — shown once the lead is closed (car sold). */}
+      {isClosed && (
+        <div className="stat-card">
+          <h3 className="font-display font-semibold text-sm uppercase text-muted-foreground tracking-wide mb-3">Sale Summary</h3>
+          {leadVehicleQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading sale…</p>
+          ) : saleSummary ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Sold Price</p>
+                <p className="text-xl font-bold font-display">${saleSummary.soldPrice.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Cost Price</p>
+                <p className="text-xl font-bold font-display">${saleSummary.costPrice.toLocaleString()}</p>
+                <p className="text-[10px] text-muted-foreground">acquisition + reconditioning</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Gross Margin</p>
+                <p className={`text-xl font-bold font-display ${grossMargin >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                  {grossMargin < 0 ? "-" : ""}${Math.abs(grossMargin).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Sale details unavailable.</p>
+          )}
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="stat-card">
@@ -701,20 +805,122 @@ export default function LeadDetail() {
               </div>
             </div>
             <div>
-              <label className="text-[11px] text-muted-foreground">Assign to staff</label>
+              <label className="text-[11px] text-muted-foreground">Assign to staff *</label>
               <Select
-                value={tdForm.assignedTo || NONE}
-                onValueChange={(v) => setTdForm({ ...tdForm, assignedTo: v === NONE ? "" : v })}
+                value={tdForm.assignedTo || undefined}
+                onValueChange={(v) => setTdForm({ ...tdForm, assignedTo: v })}
               >
-                <SelectTrigger className="w-full"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Select staff…" /></SelectTrigger>
                 <SelectContent className="max-h-72">
-                  <SelectItem value={NONE}>Unassigned</SelectItem>
                   {staffOptions.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}{s.roleName ? ` · ${s.roleName}` : ""}</SelectItem>
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}{s.roleName ? ` · ${s.roleName}` : ""}{s.id === currentUser?._id ? " (you)" : ""}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {!tdForm.assignedTo && (
+                <p className="text-[10px] text-amber-700 mt-0.5">Required — a test drive needs a responsible staff member.</p>
+              )}
             </div>
+
+            {/* Meeting type — physical (location) or virtual (paste/create link). */}
+            <div className="border rounded-lg p-2.5 space-y-2 bg-muted/30">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Meeting type</p>
+              <div className="flex gap-3 text-sm">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={tdForm.meetingType === "physical"}
+                    onChange={() => setTdForm({ ...tdForm, meetingType: "physical", createMeet: false })}
+                  />
+                  <MapPin className="h-3.5 w-3.5" /> Physical
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={tdForm.meetingType === "virtual"}
+                    onChange={() => setTdForm({ ...tdForm, meetingType: "virtual" })}
+                  />
+                  <Video className="h-3.5 w-3.5" /> Virtual
+                </label>
+              </div>
+              {tdForm.meetingType === "physical" ? (
+                <input
+                  value={tdForm.location}
+                  onChange={(e) => setTdForm({ ...tdForm, location: e.target.value })}
+                  placeholder="Address or place *"
+                  className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                />
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={tdForm.createMeet}
+                      onChange={(e) => setTdForm({ ...tdForm, createMeet: e.target.checked })}
+                    />
+                    <Video className="h-3.5 w-3.5 text-violet-500" /> Create Google Meet link
+                  </label>
+                  <input
+                    value={tdForm.meetLink}
+                    onChange={(e) => setTdForm({ ...tdForm, meetLink: e.target.value })}
+                    placeholder="Or paste an existing meet/zoom/teams link"
+                    className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                    disabled={tdForm.createMeet}
+                  />
+                  {tdForm.createMeet && (
+                    <p className="text-[10px] text-muted-foreground">A Google Meet link is generated when you save.</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Participants — buyer is auto-added; add extra staff here. */}
+            <div className="border rounded-lg p-2.5 space-y-2 bg-muted/20">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Participants</p>
+              <div className="flex gap-2">
+                <select
+                  value={tdParticipantPick}
+                  onChange={(e) => setTdParticipantPick(e.target.value)}
+                  className="flex-1 border rounded-md px-2 py-1.5 text-sm bg-background"
+                >
+                  <option value="">Add staff…</option>
+                  {staffOptions
+                    .filter((s) => !tdForm.participants.some((p) => p.userId === s.id))
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={addTdParticipant}
+                  disabled={!tdParticipantPick}
+                  className="px-2.5 py-1.5 rounded-md bg-muted text-sm font-medium hover:bg-muted/80 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">{lead.buyerName} (buyer) is added automatically.</p>
+              {tdForm.participants.length > 0 && (
+                <ul className="space-y-1">
+                  {tdForm.participants.map((p) => (
+                    <li key={p.userId} className="flex items-center justify-between text-sm bg-background border rounded-md px-2 py-1">
+                      <span className="truncate">{p.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeTdParticipant(p.userId)}
+                        className="text-muted-foreground hover:text-red-600 shrink-0"
+                        title="Remove participant"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             <input
               value={tdForm.notes}
               onChange={(e) => setTdForm({ ...tdForm, notes: e.target.value })}
@@ -726,7 +932,7 @@ export default function LeadDetail() {
             <button onClick={() => setTdDialogOpen(false)} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
             <button
               onClick={submitTd}
-              disabled={bookTestDrive.isPending || createCalendarEvent.isPending}
+              disabled={bookTestDrive.isPending || createCalendarEvent.isPending || !tdForm.assignedTo}
               className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-60"
             >
               {(bookTestDrive.isPending || createCalendarEvent.isPending) && <Loader2 className="h-4 w-4 animate-spin" />}

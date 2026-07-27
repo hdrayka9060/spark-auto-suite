@@ -53,6 +53,7 @@ export interface ServerSellerLead {
   inspectionDate?: string | null;
   assignedTo?: { _id: string; firstName: string; lastName: string } | string | null;
   communications: {
+    _id?: string;
     type?: string;
     channel: string;
     message: string;
@@ -90,6 +91,21 @@ export interface SellerVehicleListing {
   views: number;
 }
 
+/** One logged communication, flattened for the SellerDetail Communications panel. */
+export interface SellerCommunication {
+  /** Subdocument ObjectId — targets the edit/delete endpoints. */
+  id: string;
+  /** "Email" | "SMS" | "WhatsApp" | "Call" — display label. */
+  channelLabel: string;
+  /** Raw channel key (email/sms/whatsapp/call). */
+  channel: string;
+  message: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** ISO timestamp for sorting/precise display. */
+  at: string;
+}
+
 export interface Seller {
   id: string;
   /** Short stable display code, e.g. "S-1A2B3C". Derived from the ObjectId. */
@@ -118,6 +134,8 @@ export interface Seller {
   /** Count of seller's vehicles that have been sold. */
   vehiclesSold: number;
   activity: { date: string; type: string; detail: string }[];
+  /** Logged communications (email/sms/whatsapp/call), newest first. */
+  communications: SellerCommunication[];
 }
 
 export const SELLER_STAGE_LABELS: Record<ServerSellerStage, string> = {
@@ -165,6 +183,8 @@ const ACTIVITY_ACTION_LABEL: Record<string, string> = {
   inspection_scheduled: "Inspection",
   updated: "Edited",
   communication: "Communication",
+  communication_edited: "Communication",
+  communication_deleted: "Communication",
 };
 
 function deriveCode(id: string): string {
@@ -243,6 +263,18 @@ export function toClientSeller(s: ServerSellerLead): Seller {
   const totalInquiries = populatedListings.reduce((sum, l) => sum + l.inquiries, 0);
   const vehiclesSold = populatedListings.filter((l) => l.vehicleStatus === "Sold").length;
 
+  const communications: SellerCommunication[] = [...(s.communications ?? [])]
+    .filter((c) => c && c.message)
+    .sort((a, b) => (String(a.sentAt) < String(b.sentAt) ? 1 : -1))
+    .map((c) => ({
+      id: c._id ?? "",
+      channel: c.channel,
+      channelLabel: CHANNEL_LABEL[c.channel] ?? c.channel,
+      message: c.message ?? "",
+      date: c.sentAt?.slice(0, 10) ?? "",
+      at: c.sentAt ?? "",
+    }));
+
   const address = s.address ?? "";
   const city = s.city ?? "";
   const state = s.state ?? "";
@@ -275,6 +307,7 @@ export function toClientSeller(s: ServerSellerLead): Seller {
     listingViews,
     vehiclesSold,
     activity,
+    communications,
   };
 }
 

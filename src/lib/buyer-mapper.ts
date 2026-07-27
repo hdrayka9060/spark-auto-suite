@@ -23,7 +23,7 @@ export type ServerBuyerStage =
 export type ClientBuyerStatus = "Active" | "Converted" | "Dropped";
 export type ClientBuyerLeadStatus = ClientBuyerStatus;
 
-export type BuyerCommChannel = "email" | "sms" | "whatsapp" | "call" | "offline";
+export type BuyerCommChannel = "email" | "sms" | "whatsapp" | "call" | "offline" | "website";
 
 export interface ServerBuyerCommunication {
   _id: string;
@@ -185,6 +185,7 @@ const CHANNEL_LABEL: Record<BuyerCommChannel, string> = {
   whatsapp: "WhatsApp",
   call: "Call",
   offline: "Offline",
+  website: "Website",
 };
 
 const FALLBACK_IMAGE = "🚗";

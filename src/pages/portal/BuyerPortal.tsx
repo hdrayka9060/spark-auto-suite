@@ -1,3 +1,4 @@
+import { ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import {
   Calendar,
@@ -15,9 +16,6 @@ import {
   User,
   Video,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import PortalShell from "./PortalShell";
 import JourneyStepper from "./JourneyStepper";
 import StatusBadge from "./StatusBadge";
@@ -45,9 +43,8 @@ export default function BuyerPortal() {
   const soldToYou = sold.isSold && sold.soldToThisBuyer;
   const soldToOther = sold.isSold && !sold.soldToThisBuyer;
   const isArchived = journeyStatus === "archived";
-  // Archived for a reason OTHER than "sold to another buyer" (e.g. manually
-  // archived / stale inquiry). When archived AND sold-to-other, the "sold"
-  // state takes precedence.
+  // Archived for a reason OTHER than "sold to another buyer". When archived AND
+  // sold-to-other, the "sold" state takes precedence.
   const archivedOther = isArchived && !soldToOther;
 
   const sortedAppts = [...appointments].sort((a, b) => +new Date(a.start) - +new Date(b.start));
@@ -61,9 +58,9 @@ export default function BuyerPortal() {
       {/* Greeting + journey stepper */}
       <section className="space-y-4">
         <div>
-          <p className="text-sm text-muted-foreground">Welcome back</p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Hi {buyer.firstName} 👋</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="text-xs uppercase tracking-widest text-[#DB2526]">Welcome back</p>
+          <h1 className="disp mt-1 text-3xl font-bold text-white">Hi {buyer.firstName} 👋</h1>
+          <p className="mt-1 text-sm text-white/60">
             {soldToOther
               ? "Here's the latest on the vehicle you enquired about."
               : soldToYou
@@ -74,13 +71,11 @@ export default function BuyerPortal() {
           </p>
         </div>
         {!soldToOther && !archivedOther && (
-          <Card>
-            <CardContent className="p-4 sm:p-5">
-              <JourneyStepper
-                steps={BUYER_STEPS}
-                currentKey={soldToYou ? "purchased" : stepKeyForStatus(journeyStatus)}
-              />
-            </CardContent>
+          <Card className="p-4 sm:p-5">
+            <JourneyStepper
+              steps={BUYER_STEPS}
+              currentKey={soldToYou ? "purchased" : stepKeyForStatus(journeyStatus)}
+            />
           </Card>
         )}
       </section>
@@ -88,7 +83,7 @@ export default function BuyerPortal() {
       {/* The vehicle */}
       <Section title="Your vehicle">
         <Card className="overflow-hidden">
-          <div className="relative aspect-[16/10] bg-muted">
+          <div className="relative aspect-[16/10] bg-gradient-to-br from-[#333] to-[#161616]">
             {vehicle.photoUrl ? (
               <img
                 src={vehicle.photoUrl}
@@ -97,24 +92,31 @@ export default function BuyerPortal() {
                 loading="lazy"
               />
             ) : (
-              <div className="grid h-full w-full place-items-center text-muted-foreground">
+              <div className="grid h-full w-full place-items-center text-white/40">
                 <Car className="h-10 w-10" />
               </div>
             )}
-            <div className="absolute left-3 top-3">
+            {(soldToYou || soldToOther) && (
+              <div className="pointer-events-none absolute left-0 top-0 z-20 h-28 w-28 overflow-hidden">
+                <span className="disp absolute left-[-52px] top-[24px] w-[200px] rotate-[-45deg] bg-[#DB2526] py-1.5 text-center text-sm font-bold uppercase tracking-widest text-white shadow-lg">
+                  Sold
+                </span>
+              </div>
+            )}
+            <div className="absolute right-3 top-3">
               <StatusBadge tone={soldToYou ? "success" : soldToOther ? "danger" : archivedOther ? "warning" : "info"}>
                 {soldToYou ? "Sold to you" : soldToOther ? "Sold" : archivedOther ? "Archived" : "Available"}
               </StatusBadge>
             </div>
           </div>
-          <CardContent className="space-y-3 p-4 sm:p-5">
+          <div className="space-y-3 p-4 sm:p-5">
             <div className="flex items-start justify-between gap-3">
-              <h3 className="text-lg font-semibold leading-tight">{vehicle.title}</h3>
+              <h3 className="disp text-lg font-bold leading-tight text-white">{vehicle.title}</h3>
               {!sold.isSold && (
-                <p className="shrink-0 text-lg font-semibold">{formatCurrency(vehicle.price)}</p>
+                <p className="disp shrink-0 text-xl font-bold text-[#DB2526]">{formatCurrency(vehicle.price)}</p>
               )}
             </div>
-            <dl className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+            <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
               <Spec icon={<Calendar className="h-3.5 w-3.5" />} label={`${vehicle.year}`} />
               <Spec icon={<Gauge className="h-3.5 w-3.5" />} label={formatKm(vehicle.km)} />
               {vehicle.fuelType && <Spec icon={<Fuel className="h-3.5 w-3.5" />} label={titleCase(vehicle.fuelType)} />}
@@ -125,25 +127,23 @@ export default function BuyerPortal() {
             </dl>
 
             {soldToYou && (
-              <div className="rounded-lg bg-emerald-500/10 p-3 ring-1 ring-inset ring-emerald-500/20">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Sold price</p>
-                <p className="text-2xl font-semibold tracking-tight">{formatCurrency(sold.soldPrice ?? 0)}</p>
-                {sold.soldDate && (
-                  <p className="mt-0.5 text-xs text-muted-foreground">on {formatDate(sold.soldDate)}</p>
-                )}
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                <p className="text-xs uppercase tracking-wider text-white/50">Sold price</p>
+                <p className="disp text-2xl font-bold text-white">{formatCurrency(sold.soldPrice ?? 0)}</p>
+                {sold.soldDate && <p className="mt-0.5 text-xs text-white/50">on {formatDate(sold.soldDate)}</p>}
               </div>
             )}
             {soldToOther && (
-              <div className="rounded-lg bg-rose-500/10 p-3 text-sm text-rose-700 ring-1 ring-inset ring-rose-500/20 dark:text-rose-400">
+              <div className="rounded-lg border border-[#DB2526]/40 bg-[#DB2526]/10 p-3 text-sm text-[#ff9a9a]">
                 This vehicle has been sold. Browse our latest inventory below for similar cars.
               </div>
             )}
             {archivedOther && (
-              <div className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-700 ring-1 ring-inset ring-amber-500/20 dark:text-amber-400">
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-300">
                 This inquiry has been archived. Please contact the dealership below if you're still interested.
               </div>
             )}
-          </CardContent>
+          </div>
         </Card>
       </Section>
 
@@ -166,24 +166,20 @@ export default function BuyerPortal() {
             )}
             {communications.length > 0 && (
               <div>
-                <h3 className="mb-2 text-sm font-semibold text-muted-foreground">Communication history</h3>
+                <h3 className="mb-2 text-sm font-semibold text-white/60">Communication history</h3>
                 <Card>
-                  <CardContent className="p-0">
-                    <ul className="divide-y divide-border/70">
-                      {communications.map((c, i) => (
-                        <li key={i} className="px-4 py-3 text-sm">
-                          <div className="flex items-center gap-3">
-                            <ChannelIcon channel={c.channel} />
-                            <span className="font-medium">{channelLabel(c.channel)}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">{formatDate(c.date)}</span>
-                          </div>
-                          {c.summary && (
-                            <p className="mt-1 pl-7 text-sm text-muted-foreground">{c.summary}</p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
+                  <ul className="divide-y divide-[#3a3a3a]">
+                    {communications.map((c, i) => (
+                      <li key={i} className="px-4 py-3 text-sm">
+                        <div className="flex items-center gap-3">
+                          <ChannelIcon channel={c.channel} />
+                          <span className="font-medium text-white">{channelLabel(c.channel)}</span>
+                          <span className="ml-auto text-xs text-white/50">{formatDate(c.date)}</span>
+                        </div>
+                        {c.summary && <p className="mt-1 pl-7 text-sm text-white/60">{c.summary}</p>}
+                      </li>
+                    ))}
+                  </ul>
                 </Card>
               </div>
             )}
@@ -191,66 +187,58 @@ export default function BuyerPortal() {
         )}
       </Section>
 
-      {/* Your offer — below appointments; hidden once the car is sold */}
+      {/* Your offer — hidden once the car is sold */}
       {offer && !sold.isSold && !archivedOther && (
         <Section title="Your offer">
-          <Card>
-            <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5 bg-card">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Your offer on</p>
-                <p className="text-sm font-medium">{vehicle.title}</p>
-                <p className="mt-2 text-2xl font-semibold tracking-tight">{formatCurrency(offer.askedPrice)}</p>
-              </div>
-              <StatusBadge tone="info">Awaiting response</StatusBadge>
-            </CardContent>
+          <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-white/50">Your offer on</p>
+              <p className="text-sm font-medium text-white/90">{vehicle.title}</p>
+              <p className="disp mt-2 text-2xl font-bold text-white">{formatCurrency(offer.askedPrice)}</p>
+            </div>
+            <StatusBadge tone="info">Awaiting response</StatusBadge>
           </Card>
         </Section>
       )}
 
       {/* Browse more vehicles */}
       <Section title="Looking for something else?">
-        <Card>
-          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-            <div>
-              <p className="text-base font-semibold">Browse more vehicles</p>
-              <p className="text-sm text-muted-foreground">See our full inventory online.</p>
-            </div>
-            <Button asChild className="w-full sm:w-auto">
-              <a href={browseUrl} target="_blank" rel="noreferrer">
-                Browse inventory <ExternalLink className="ml-2 h-4 w-4" />
-              </a>
-            </Button>
-          </CardContent>
+        <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div>
+            <p className="disp text-base font-bold text-white">Browse more vehicles</p>
+            <p className="text-sm text-white/60">See our full inventory online.</p>
+          </div>
+          <a href={browseUrl} target="_blank" rel="noreferrer" className={redBtn}>
+            Browse inventory <ExternalLink className="h-4 w-4" />
+          </a>
         </Card>
       </Section>
 
-      {/* Dealer contact (passive — no message form). Always shown. */}
+      {/* Dealer contact (passive — no message form) */}
       {dealer && (
         <Section title="Need help?">
-          <Card>
-            <CardContent className="space-y-3 p-4 sm:p-5 bg-card">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Your dealer</p>
-                <p className="text-base font-semibold">{dealer.name}</p>
-                {dealer.address && (
-                  <p className="mt-1 flex items-start gap-2 text-sm text-muted-foreground">
-                    <MapPin className="mt-0.5 h-4 w-4 shrink-0" /> {dealer.address}
-                  </p>
-                )}
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {dealer.phone && (
-                  <a href={`tel:${dealer.phone}`} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-accent">
-                    <Phone className="h-4 w-4 text-muted-foreground" /> {dealer.phone}
-                  </a>
-                )}
-                {dealer.email && (
-                  <a href={`mailto:${dealer.email}`} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-accent">
-                    <Mail className="h-4 w-4 text-muted-foreground" /> {dealer.email}
-                  </a>
-                )}
-              </div>
-            </CardContent>
+          <Card className="space-y-3 p-4 sm:p-5">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-white/50">Your dealer</p>
+              <p className="disp text-base font-bold text-white">{dealer.name}</p>
+              {dealer.address && (
+                <p className="mt-1 flex items-start gap-2 text-sm text-white/60">
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#DB2526]" /> {dealer.address}
+                </p>
+              )}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {dealer.phone && (
+                <a href={`tel:${dealer.phone}`} className={contactTile}>
+                  <Phone className="h-4 w-4 text-[#DB2526]" /> {dealer.phone}
+                </a>
+              )}
+              {dealer.email && (
+                <a href={`mailto:${dealer.email}`} className={contactTile}>
+                  <Mail className="h-4 w-4 text-[#DB2526]" /> {dealer.email}
+                </a>
+              )}
+            </div>
           </Card>
         </Section>
       )}
@@ -258,45 +246,54 @@ export default function BuyerPortal() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+const redBtn =
+  "inline-flex items-center justify-center gap-2 rounded-md bg-[#DB2526] px-6 py-3 disp text-sm font-bold uppercase tracking-wide text-white transition-colors hover:bg-[#B41A1A]";
+const contactTile =
+  "flex items-center gap-2 rounded-md border border-[#3a3a3a] bg-[#0b0b0b] px-3 py-2 text-sm font-medium text-white transition-colors hover:border-[#DB2526]/60";
+
+function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`rounded-xl border border-[#3a3a3a] bg-[#2a2a2a] ${className}`}>{children}</div>;
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-3">
-      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+      <h2 className="disp text-lg font-bold text-white">{title}</h2>
       {children}
     </section>
   );
 }
 
-function Spec({ icon, label }: { icon: React.ReactNode; label: string }) {
+function Spec({ icon, label }: { icon: ReactNode; label: string }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-muted-foreground/80">{icon}</span>
-      <span className="text-foreground/80">{label}</span>
+    <div className="flex items-center gap-1.5 text-white/70">
+      <span className="text-[#DB2526]">{icon}</span>
+      <span>{label}</span>
     </div>
   );
 }
 
 function ApptCard({ appt, nextUp }: { appt: ServerPortalAppointment; nextUp: boolean }) {
   return (
-    <Card className={nextUp ? "border-primary/40 bg-card" : "bg-card"}>
-      <CardContent className="space-y-2 p-4">
+    <Card className={`p-4 ${nextUp ? "border-[#DB2526]/50" : ""}`}>
+      <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           {nextUp && (
-            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+            <span className="rounded-full bg-[#DB2526]/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#ff8f8f]">
               Next up
             </span>
           )}
           <StatusBadge tone={apptStatusTone(appt.status)}>{appt.status.replace("_", " ")}</StatusBadge>
         </div>
         <div>
-          <h4 className="text-sm font-semibold leading-tight">
+          <h4 className="text-sm font-semibold leading-tight text-white">
             {apptTypeLabel(appt.type)}
             {appt.title ? ` · ${appt.title}` : ""}
           </h4>
-          <p className="mt-0.5 text-xs text-muted-foreground">{formatDateTime(appt.start)}</p>
+          <p className="mt-0.5 text-xs text-white/50">{formatDateTime(appt.start)}</p>
         </div>
         <ApptDetails appt={appt} />
-      </CardContent>
+      </div>
     </Card>
   );
 }
@@ -308,7 +305,7 @@ function ApptDetails({ appt }: { appt: ServerPortalAppointment }) {
         href={appt.meetLink}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+        className="inline-flex items-center gap-2 text-sm font-medium text-[#DB2526] hover:underline"
       >
         <Video className="h-4 w-4" /> Join video call
       </a>
@@ -316,8 +313,8 @@ function ApptDetails({ appt }: { appt: ServerPortalAppointment }) {
   }
   if (appt.location) {
     return (
-      <div className="flex items-start gap-2 text-sm text-muted-foreground">
-        <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className="flex items-start gap-2 text-sm text-white/60">
+        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#DB2526]" />
         <span>{appt.location}</span>
       </div>
     );
@@ -326,50 +323,47 @@ function ApptDetails({ appt }: { appt: ServerPortalAppointment }) {
 }
 
 function ChannelIcon({ channel }: { channel: string }) {
-  const cls = "h-4 w-4 text-muted-foreground";
+  const cls = "h-4 w-4 text-[#DB2526]";
   if (channel === "call") return <Phone className={cls} />;
   if (channel === "email") return <Mail className={cls} />;
   if (channel === "offline") return <User className={cls} />;
-  return <MessageCircle className={cls} />; // whatsapp / sms / other
+  return <MessageCircle className={cls} />; // whatsapp / sms / website / other
 }
 
-function EmptyState({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
+function EmptyState({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
   return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
-        <div className="grid h-10 w-10 place-items-center rounded-full bg-muted text-muted-foreground">{icon}</div>
-        <p className="text-sm font-medium">{title}</p>
-        <p className="max-w-sm text-xs text-muted-foreground">{body}</p>
-      </CardContent>
+    <Card className="flex flex-col items-center gap-2 py-10 text-center">
+      <div className="grid h-10 w-10 place-items-center rounded-full bg-[#0b0b0b] text-[#DB2526]">{icon}</div>
+      <p className="text-sm font-medium text-white">{title}</p>
+      <p className="max-w-sm text-xs text-white/50">{body}</p>
     </Card>
   );
 }
 
 function NotFoundState() {
   return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-        <div className="grid h-12 w-12 place-items-center rounded-full bg-muted text-muted-foreground">
-          <CircleAlert className="h-6 w-6" />
-        </div>
-        <p className="text-base font-semibold">This link isn't available</p>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          The link may be invalid or expired. Please contact the dealership for an up-to-date link.
-        </p>
-      </CardContent>
+    <Card className="flex flex-col items-center gap-3 py-16 text-center">
+      <div className="grid h-12 w-12 place-items-center rounded-full bg-[#0b0b0b] text-[#DB2526]">
+        <CircleAlert className="h-6 w-6" />
+      </div>
+      <p className="disp text-base font-bold text-white">This link isn't available</p>
+      <p className="max-w-sm text-sm text-white/60">
+        The link may be invalid or expired. Please contact the dealership for an up-to-date link.
+      </p>
     </Card>
   );
 }
 
 function LoadingState() {
+  const bar = "animate-pulse rounded-lg bg-[#2a2a2a]";
   return (
     <div className="space-y-6">
       <div className="space-y-3">
-        <Skeleton className="h-6 w-40" />
-        <Skeleton className="h-20 w-full" />
+        <div className={`${bar} h-6 w-40`} />
+        <div className={`${bar} h-20 w-full`} />
       </div>
-      <Skeleton className="h-56 w-full" />
-      <Skeleton className="h-32 w-full" />
+      <div className={`${bar} h-56 w-full`} />
+      <div className={`${bar} h-32 w-full`} />
     </div>
   );
 }

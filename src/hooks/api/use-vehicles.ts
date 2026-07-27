@@ -29,8 +29,14 @@ export interface VehicleListFilters {
 
 export function useVehicles(filters: VehicleListFilters = {}) {
   const { search, status, page = 1, limit = 50, sort = "-createdAt" } = filters;
+  // "Available" (no status) → 'available' sentinel so the empty-string status
+  // survives query-param transport; the backend findAll translates it to ''.
   const serverStatus =
-    status && status !== "All" ? vehicleStatusToServer(status) : undefined;
+    !status || status === "All"
+      ? undefined
+      : status === "Available"
+      ? "available"
+      : vehicleStatusToServer(status);
 
   return useQuery({
     queryKey: [...VEHICLES_KEY, "list", { search, status, page, limit, sort }],
@@ -97,6 +103,38 @@ export function useVehicleActivityLogs(vehicleId: string | undefined) {
       }));
     },
     enabled: Boolean(vehicleId),
+  });
+}
+
+// ── Per-vehicle Activity tab (views / inquiries / test drives + merged log) ─
+
+export interface VehicleActivityLog {
+  /** ISO timestamp. */ date: string;
+  channel: string;
+  summary: string;
+  by: string;
+  /** Where the entry came from — drives the source badge. */
+  source: "communication" | "lead" | "buyer" | "seller" | string;
+}
+
+export interface VehicleActivity {
+  views: number;
+  inquiries: number;
+  testDrives: number;
+  logs: VehicleActivityLog[];
+}
+
+/**
+ * One call backs the whole Activity tab: lifetime views (storefront opens),
+ * inquiries (website-sourced leads), test drives booked, and the merged
+ * communication log across the lead / buyer / seller / standalone sources.
+ */
+export function useVehicleActivity(vehicleId: string | undefined) {
+  return useQuery({
+    queryKey: [...VEHICLES_KEY, "activity", vehicleId],
+    queryFn: () => api<VehicleActivity>(`/inventory/${vehicleId}/activity`),
+    enabled: Boolean(vehicleId),
+    staleTime: 30_000,
   });
 }
 

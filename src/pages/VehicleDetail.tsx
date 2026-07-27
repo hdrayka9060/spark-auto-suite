@@ -1,19 +1,16 @@
 import { useRef, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import {
-  ArrowLeft, Edit, Trash2, CheckCircle2, ChevronLeft, ChevronRight,
-  Eye, MessageSquare, Car, Heart, Calendar, Gauge, Fuel, Settings as SettingsIcon,
+  ArrowLeft, Edit, Trash2, ChevronLeft, ChevronRight,
+  Eye, MessageSquare, Car, Calendar, Gauge, Fuel, Settings as SettingsIcon,
   Palette, Hash, Users, History, Activity, Loader2, AlertCircle, Save, X, Upload,
   Receipt, Plus,
 } from "lucide-react";
 import {
   useDeleteVehicle, useDeleteVehicleImage, useUpdateVehicle, useUploadVehicleImages,
-  useVehicle, useVehicleActivityLogs, useVehicleTestDriveCount,
+  useVehicle, useVehicleActivity,
   useAddVehicleSpend, useUpdateVehicleSpend, useDeleteVehicleSpend,
 } from "@/hooks/api/use-vehicles";
-import { useCreateSale } from "@/hooks/api/use-accounting";
-import { useBuyers } from "@/hooks/api/use-buyers";
-import { useLeads } from "@/hooks/api/use-leads";
 import { useCan } from "@/components/Can";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { ApiError, fileUrl } from "@/lib/api";
@@ -22,22 +19,26 @@ import {
   VEHICLE_STATUS_BADGE_CLASS,
   Vehicle, VehicleSpend, normalizeFuelType, normalizeTransmission, vehicleStatusToServer,
 } from "@/lib/vehicle-mapper";
-import { ClientPaymentStatus } from "@/lib/accounting-mapper";
 import { toast } from "@/hooks/use-toast";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-
-const NONE = "__none__";
-// "Other" sentinel for the buyer picker — switching to it reveals manual
-// name/email fields so the user can record a sale to someone who isn't (yet)
-// in the CRM.
-const OTHER = "__other__";
 
 const statusClass = VEHICLE_STATUS_BADGE_CLASS;
+
+// Where each Recent-Activity-Log entry came from (buyer / seller / lead / standalone comm).
+const SOURCE_LABEL: Record<string, string> = {
+  communication: "Comm",
+  lead: "Lead",
+  buyer: "Buyer",
+  seller: "Seller",
+};
+const SOURCE_BADGE: Record<string, string> = {
+  communication: "bg-indigo-100 text-indigo-700",
+  lead: "bg-violet-100 text-violet-700",
+  buyer: "bg-sky-100 text-sky-700",
+  seller: "bg-teal-100 text-teal-700",
+};
 
 type TabKey = "overview" | "details" | "spends" | "history" | "activity";
 
@@ -50,13 +51,16 @@ export default function VehicleDetail() {
   const deleteVehicle = useDeleteVehicle();
   const uploadImages = useUploadVehicleImages(id);
   const deleteImage = useDeleteVehicleImage(id);
-  const logsQuery = useVehicleActivityLogs(id);
-  const testDriveCountQuery = useVehicleTestDriveCount(id);
+  const activityQuery = useVehicleActivity(id);
   const addSpend = useAddVehicleSpend(id);
   const updateSpendMut = useUpdateVehicleSpend(id);
   const deleteSpend = useDeleteVehicleSpend(id);
   const canEditInventory = useCan("Inventory", "edit");
   const canDeleteInventory = useCan("Inventory", "delete");
+  // Financial figures (cost price, reconditioning spends, sold price, gross
+  // margin) are gated behind Accounting:view — staff with only Inventory access
+  // manage the car but never see its money.
+  const canViewFinancials = useCan("Accounting", "view");
   const confirm = useConfirm();
 
   const [tab, setTab] = useState<TabKey>("overview");
@@ -96,26 +100,6 @@ export default function VehicleDetail() {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sold-flow state — opens when the user transitions status to Sold from
-  // either the edit form or the "Mark as Sold" header button. Drives the same
-  // unified createSale flow that Accounting + Close-Lead use.
-  const createSale = useCreateSale();
-  const buyersQuery = useBuyers();
-  const leadsQuery = useLeads();
-  const [soldDialogOpen, setSoldDialogOpen] = useState(false);
-  const [soldForm, setSoldForm] = useState({
-    buyerName: "",
-    buyerEmail: "",
-    linkedBuyerId: "",
-    linkedLeadId: "",
-    soldAt: "",
-    saleDate: new Date().toISOString().slice(0, 10),
-    paymentMethod: "cash" as "cash" | "finance" | "bhph" | "trade_in",
-    paymentStatus: "Paid" as ClientPaymentStatus,
-    amountPaid: "",
-    notes: "",
-  });
-
   const vehicle = vehicleQuery.data;
 
   if (vehicleQuery.isLoading) {
@@ -149,7 +133,8 @@ export default function VehicleDetail() {
   const tabs: { key: TabKey; label: string; icon: typeof Eye }[] = [
     { key: "overview", label: "Overview", icon: Car },
     { key: "details", label: "Details", icon: SettingsIcon },
-    { key: "spends", label: "Spends", icon: Receipt },
+    // Spends are financial data — only surfaced to Accounting:view holders.
+    ...(canViewFinancials ? [{ key: "spends" as TabKey, label: "Spends", icon: Receipt }] : []),
     { key: "history", label: "History", icon: History },
     { key: "activity", label: "Activity", icon: Activity },
   ];
@@ -185,126 +170,8 @@ export default function VehicleDetail() {
     setEditForm(null);
   };
 
-  const openSoldDialog = () => {
-    setSoldForm({
-      buyerName: "",
-      buyerEmail: "",
-      linkedBuyerId: "",
-      linkedLeadId: "",
-      soldAt: String(vehicle.price ?? ""),
-      saleDate: new Date().toISOString().slice(0, 10),
-      paymentMethod: "cash",
-      paymentStatus: "Paid",
-      amountPaid: "",
-      notes: "",
-    });
-    setSoldDialogOpen(true);
-  };
-
-  /**
-   * Buyer-picker controller. Three cases:
-   *   - existing buyer id → fill name/email from CRM, lock linkedBuyerId
-   *   - OTHER sentinel    → clear linkedBuyerId, let user type manually
-   *   - empty string      → reset both link + manual fields
-   */
-  const handleSoldBuyerPicked = (value: string) => {
-    if (!value) {
-      setSoldForm((f) => ({ ...f, linkedBuyerId: "", buyerName: "", buyerEmail: "" }));
-      return;
-    }
-    if (value === OTHER) {
-      setSoldForm((f) => ({ ...f, linkedBuyerId: OTHER, buyerName: "", buyerEmail: "" }));
-      return;
-    }
-    const b = (buyersQuery.data?.data ?? []).find((x) => x.id === value);
-    if (!b) return;
-    setSoldForm((f) => ({
-      ...f,
-      linkedBuyerId: value,
-      buyerName: b.name,
-      buyerEmail: b.email,
-    }));
-  };
-
-  const handleSoldLeadPicked = (leadId: string) => {
-    if (!leadId) {
-      setSoldForm((f) => ({ ...f, linkedLeadId: "" }));
-      return;
-    }
-    const l = (leadsQuery.data?.data ?? []).find((x) => x.id === leadId);
-    if (!l) return;
-    setSoldForm((f) => ({
-      ...f,
-      linkedLeadId: leadId,
-      linkedBuyerId: l.buyerId || f.linkedBuyerId,
-      buyerName: l.buyerName !== "—" ? l.buyerName : f.buyerName,
-      buyerEmail: l.buyerEmail ?? f.buyerEmail,
-    }));
-  };
-
-  const submitSold = async () => {
-    if (!soldForm.buyerName || !soldForm.buyerEmail) {
-      toast({ title: "Buyer required", description: "Pick a CRM buyer or fill in name + email.", variant: "destructive" });
-      return;
-    }
-    const soldAtNum = parseFloat(soldForm.soldAt);
-    if (!soldAtNum || soldAtNum <= 0) {
-      toast({ title: "Sold price required", variant: "destructive" });
-      return;
-    }
-    const amountPaidNum = soldForm.amountPaid !== "" ? parseFloat(soldForm.amountPaid) : undefined;
-    if (soldForm.paymentStatus === "Partial") {
-      if (amountPaidNum === undefined || amountPaidNum <= 0) {
-        toast({ title: "Amount paid required for Partial", variant: "destructive" });
-        return;
-      }
-      if (amountPaidNum > soldAtNum) {
-        toast({ title: "Amount paid exceeds sold price", variant: "destructive" });
-        return;
-      }
-    }
-    try {
-      const realBuyerId = soldForm.linkedBuyerId && soldForm.linkedBuyerId !== OTHER
-        ? soldForm.linkedBuyerId : undefined;
-      await createSale.mutateAsync({
-        vehicleId: vehicle.id,
-        vehicleTitle: vehicle.title,
-        buyerName: soldForm.buyerName,
-        buyerEmail: soldForm.buyerEmail,
-        salePrice: soldAtNum,
-        costPrice: vehicle.costPrice ?? 0,
-        discount: 0,
-        amountPaid: amountPaidNum,
-        saleDate: soldForm.saleDate,
-        paymentMethod: soldForm.paymentMethod,
-        paymentStatus: soldForm.paymentStatus,
-        notes: soldForm.notes || undefined,
-        buyerLeadId: realBuyerId,
-        leadId: soldForm.linkedLeadId || undefined,
-      });
-      toast({
-        title: "Vehicle sold",
-        description: `Sale recorded · vehicle marked Sold${soldForm.linkedLeadId ? " · lead closed" : ""}.`,
-      });
-      setSoldDialogOpen(false);
-      // Reset edit-form status if user was mid-edit
-      if (editForm) setEditForm({ ...editForm, status: "Sold" });
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "Could not mark as sold";
-      toast({ title: "Save failed", description: msg, variant: "destructive" });
-    }
-  };
-
   const saveEdit = async () => {
     if (!editForm) return;
-
-    // If the user is transitioning the vehicle to Sold from the edit form,
-    // route through the SoldDialog (buyer + sale fields) instead of a plain
-    // status PATCH. The dialog calls the unified createSale flow.
-    if (editForm.status === "Sold" && vehicle.status !== "Sold") {
-      openSoldDialog();
-      return;
-    }
 
     try {
       await updateVehicle.mutateAsync({
@@ -333,11 +200,6 @@ export default function VehicleDetail() {
       const msg = err instanceof ApiError ? err.message : "Could not update vehicle";
       toast({ title: "Update failed", description: msg, variant: "destructive" });
     }
-  };
-
-  const markAsSold = () => {
-    if (vehicle.status === "Sold") return;
-    openSoldDialog();
   };
 
   const submitSpend = async () => {
@@ -496,22 +358,12 @@ export default function VehicleDetail() {
           ) : (
             <>
               {canEditInventory && (
-                <>
-                  <button
-                    onClick={startEdit}
-                    className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
-                  >
-                    <Edit className="h-4 w-4" /> Edit Vehicle
-                  </button>
-                  <button
-                    onClick={markAsSold}
-                    disabled={vehicle.status === "Sold" || updateVehicle.isPending}
-                    className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {updateVehicle.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    {vehicle.status === "Sold" ? "Sold" : "Mark as Sold"}
-                  </button>
-                </>
+                <button
+                  onClick={startEdit}
+                  className="flex items-center gap-2 bg-muted text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted/80"
+                >
+                  <Edit className="h-4 w-4" /> Edit Vehicle
+                </button>
               )}
               {canDeleteInventory && (
                 <button
@@ -566,6 +418,20 @@ export default function VehicleDetail() {
               >
                 {uploadImages.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                 {uploadImages.isPending ? "Uploading…" : "Upload"}
+              </button>
+            )}
+            {/* Delete the CURRENT photo — works even when the car has a single
+                image (the thumbnail strip, and its delete "×", only render for
+                2+ photos, so this is the only way to remove the last one). */}
+            {canEditInventory && isCurrentImagePath && (
+              <button
+                onClick={() => handleDeletePhoto(currentGalleryItem)}
+                disabled={deleteImage.isPending}
+                className="absolute top-3 left-3 flex items-center gap-1.5 bg-card/90 backdrop-blur border rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+                title="Remove this photo"
+              >
+                {deleteImage.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                Delete photo
               </button>
             )}
             <input
@@ -626,22 +492,21 @@ export default function VehicleDetail() {
             <div className="flex items-center gap-2 mt-2">
               {editing && editForm ? (
                 <>
-                  {/* Status is no longer hand-edited here — a vehicle's status is
-                      driven by its leads + the unified sale flow ("Mark as Sold").
-                      Shown read-only so it stays visible while editing. */}
-                  <span className={`status-badge ${statusClass[vehicle.status]}`}>{vehicle.status}</span>
-                  <select
-                    value={editForm.hosting}
-                    onChange={(e) => setEditForm({ ...editForm, hosting: e.target.value as Vehicle["hosting"] })}
-                    className="border rounded-lg px-2 py-1 text-xs bg-background"
-                  >
-                    <option value="Self">Self Hosted</option>
-                    <option value="Platform">Platform</option>
-                  </select>
+                  {/* Status is not hand-edited here — it's driven by leads + the
+                      unified sale flow (Accounting / Close Lead). Read-only while
+                      editing so it stays visible. */}
+                  {vehicle.status !== "Available" && (
+                    <span className={`status-badge ${statusClass[vehicle.status]}`}>{vehicle.status}</span>
+                  )}
+                  {/* Hosting is fixed at creation (it drives the seller link) —
+                      read-only while editing, like status. */}
+                  <span className="text-xs text-muted-foreground">Hosting: {vehicle.hosting}</span>
                 </>
               ) : (
                 <>
-                  <span className={`status-badge ${statusClass[vehicle.status]}`}>{vehicle.status}</span>
+                  {vehicle.status !== "Available" && (
+                    <span className={`status-badge ${statusClass[vehicle.status]}`}>{vehicle.status}</span>
+                  )}
                   <span className="text-xs text-muted-foreground">Hosting: {vehicle.hosting}</span>
                 </>
               )}
@@ -653,34 +518,39 @@ export default function VehicleDetail() {
             <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Prices</div>
             {editing && editForm ? (
               <div className="space-y-2">
-                <PriceField label="Cost Price">
-                  <input
-                    type="number"
-                    value={editForm.costPrice}
-                    onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
-                    placeholder="0"
-                    className="border rounded-lg px-3 py-1.5 text-sm bg-background w-32 text-right"
-                  />
-                </PriceField>
+                {canViewFinancials && (
+                  <PriceField label="Cost Price">
+                    <input
+                      type="number"
+                      min={0}
+                      value={editForm.costPrice}
+                      onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value.replace(/-/g, "") })}
+                      placeholder="0"
+                      className="border rounded-lg px-3 py-1.5 text-sm bg-background w-32 text-right"
+                    />
+                  </PriceField>
+                )}
                 <PriceField label="Selling Price">
                   <div className="flex gap-2">
                     <input
                       type="number"
+                      min={0}
                       value={editForm.price}
-                      onChange={(e) => setEditForm({ ...editForm, price: e.target.value })}
+                      onChange={(e) => setEditForm({ ...editForm, price: e.target.value.replace(/-/g, "") })}
                       placeholder="0"
                       className="border rounded-lg px-3 py-1.5 text-sm bg-background w-32 text-right"
                     />
                     <input
                       type="number"
+                      min={0}
                       value={editForm.discount}
-                      onChange={(e) => setEditForm({ ...editForm, discount: e.target.value })}
+                      onChange={(e) => setEditForm({ ...editForm, discount: e.target.value.replace(/-/g, "") })}
                       placeholder="Discount $"
                       className="border rounded-lg px-3 py-1.5 text-sm bg-background w-28 text-right"
                     />
                   </div>
                 </PriceField>
-                {vehicle.status === "Sold" && (
+                {canViewFinancials && vehicle.status === "Sold" && (
                   <PriceField label="Sold Price">
                     <span className="text-sm text-muted-foreground">
                       ${vehicle.soldAt.toLocaleString()} <span className="text-[10px]">(read-only)</span>
@@ -690,8 +560,10 @@ export default function VehicleDetail() {
               </div>
             ) : (
               <div className="space-y-1.5">
-                <PriceRow label="Cost Price" value={`$${(vehicle.costPrice ?? 0).toLocaleString()}`} />
-                {vehicle.totalSpend > 0 && (
+                {canViewFinancials && (
+                  <PriceRow label="Cost Price" value={`$${(vehicle.costPrice ?? 0).toLocaleString()}`} />
+                )}
+                {canViewFinancials && vehicle.totalSpend > 0 && (
                   <PriceRow label="Spent (recond.)" value={`$${vehicle.totalSpend.toLocaleString()}`} />
                 )}
                 <PriceRow
@@ -705,7 +577,7 @@ export default function VehicleDetail() {
                     </span>
                   }
                 />
-                {vehicle.status === "Sold" && (
+                {canViewFinancials && vehicle.status === "Sold" && (
                   <PriceRow
                     label="Sold Price"
                     value={
@@ -713,7 +585,7 @@ export default function VehicleDetail() {
                     }
                   />
                 )}
-                {vehicle.status === "Sold" && (vehicle.soldAt ?? 0) > 0 && (
+                {canViewFinancials && vehicle.status === "Sold" && (vehicle.soldAt ?? 0) > 0 && (
                   <PriceRow
                     label="Gross Margin"
                     value={
@@ -736,13 +608,13 @@ export default function VehicleDetail() {
           {editing && editForm ? (
             <div className="border-t pt-4 grid grid-cols-2 gap-3">
               <EditField icon={Calendar} label="Year">
-                <input type="number" value={editForm.year} onChange={(e) => setEditForm({ ...editForm, year: e.target.value })} className="w-full border rounded px-2 py-1 text-sm bg-background" />
+                <input type="number" min={1900} max={2100} value={editForm.year} onChange={(e) => setEditForm({ ...editForm, year: e.target.value.replace(/-/g, "") })} className="w-full border rounded px-2 py-1 text-sm bg-background" />
               </EditField>
               <EditField icon={Gauge} label="KM Driven">
-                <input type="number" value={editForm.km} onChange={(e) => setEditForm({ ...editForm, km: e.target.value })} className="w-full border rounded px-2 py-1 text-sm bg-background" />
+                <input type="number" min={0} value={editForm.km} onChange={(e) => setEditForm({ ...editForm, km: e.target.value.replace(/-/g, "") })} className="w-full border rounded px-2 py-1 text-sm bg-background" />
               </EditField>
               <EditField icon={Users} label="Owners">
-                <input type="number" value={editForm.owners} onChange={(e) => setEditForm({ ...editForm, owners: e.target.value })} className="w-full border rounded px-2 py-1 text-sm bg-background" />
+                <input type="number" min={1} value={editForm.owners} onChange={(e) => setEditForm({ ...editForm, owners: e.target.value.replace(/-/g, "") })} className="w-full border rounded px-2 py-1 text-sm bg-background" />
               </EditField>
               <EditField icon={Fuel} label="Fuel">
                 <input value={editForm.fuel} onChange={(e) => setEditForm({ ...editForm, fuel: e.target.value })} placeholder="petrol / electric / hybrid…" className="w-full border rounded px-2 py-1 text-sm bg-background" />
@@ -823,15 +695,24 @@ export default function VehicleDetail() {
           </div>
           <div className="stat-card space-y-3">
             <h3 className="font-display font-semibold">Engagement</h3>
-            <ActivityRow icon={Eye} label="Total Views" value={vehicle.activity.views.toLocaleString()} />
-            <ActivityRow icon={MessageSquare} label="Inquiries" value={String(vehicle.activity.inquiries)} />
+            <ActivityRow
+              icon={Eye}
+              label="Total Views"
+              value={activityQuery.isLoading ? "…" : (activityQuery.data?.views ?? 0).toLocaleString()}
+              hint="Storefront opens (lifetime)"
+            />
+            <ActivityRow
+              icon={MessageSquare}
+              label="Inquiries"
+              value={activityQuery.isLoading ? "…" : String(activityQuery.data?.inquiries ?? 0)}
+              hint="Storefront leads (lifetime)"
+            />
             <ActivityRow
               icon={Car}
               label="Test Drives"
-              value={testDriveCountQuery.isLoading ? "…" : String(testDriveCountQuery.data ?? 0)}
-              hint="From Calendar events"
+              value={activityQuery.isLoading ? "…" : String(activityQuery.data?.testDrives ?? 0)}
+              hint="Booked (lifetime)"
             />
-            <ActivityRow icon={Heart} label="Favorites" value="—" hint="Public-site feature (deferred)" />
           </div>
         </div>
       )}
@@ -845,8 +726,13 @@ export default function VehicleDetail() {
           <DetailRow label="Year" value={String(vehicle.year)} />
           <DetailRow label="Body Type" value={vehicle.bodyType || "—"} />
           <DetailRow label="Color" value={vehicle.color || "—"} />
+          <DetailRow label="Interior Color" value={vehicle.interiorColor || "—"} />
           <DetailRow label="Fuel" value={vehicle.fuel || "—"} />
           <DetailRow label="Transmission" value={vehicle.transmission || "—"} />
+          <DetailRow label="Drivetrain" value={vehicle.drivetrain || "—"} />
+          <DetailRow label="Engine" value={vehicle.engine || "—"} />
+          <DetailRow label="Engine Size" value={vehicle.engineSize || "—"} />
+          <DetailRow label="Doors" value={vehicle.doors ? String(vehicle.doors) : "—"} />
           <DetailRow label="KM Driven" value={vehicle.km.toLocaleString()} />
           <DetailRow label="Owners" value={String(vehicle.owners)} />
           <DetailRow label="Hosting" value={vehicle.hosting} />
@@ -871,7 +757,7 @@ export default function VehicleDetail() {
         </div>
       )}
 
-      {tab === "spends" && (
+      {tab === "spends" && canViewFinancials && (
         <div className="space-y-6">
           {/* Summary */}
           <div className="stat-card flex flex-wrap items-center justify-between gap-4">
@@ -890,22 +776,24 @@ export default function VehicleDetail() {
             </div>
           </div>
 
-          {/* Add form (hidden when sold) / sold banner */}
-          {vehicle.status === "Sold" ? (
-            <div className="stat-card border-amber-200 bg-amber-50 text-amber-800 text-sm flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>This vehicle is sold — its spend total is locked into the sale, so new spends can't be added. You can still remove an entry below to correct a mistake (the sale's cost updates automatically).</span>
-            </div>
-          ) : canEditInventory ? (
+          {/* Add form — available even after the vehicle is sold. */}
+          {canEditInventory ? (
             <div className="stat-card space-y-3">
               <h4 className="font-medium text-sm">Add a spend</h4>
+              {vehicle.status === "Sold" && (
+                <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  This vehicle is sold — new spends still post to the expense ledger and the sale's cost basis updates automatically.
+                </p>
+              )}
               <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
                 <div>
                   <label className="text-[11px] text-muted-foreground">Amount ($) *</label>
                   <input
                     type="number"
+                    min={0}
                     value={spendForm.amount}
-                    onChange={(e) => setSpendForm({ ...spendForm, amount: e.target.value })}
+                    onChange={(e) => setSpendForm({ ...spendForm, amount: e.target.value.replace(/-/g, "") })}
                     placeholder="500"
                     className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
                   />
@@ -1041,33 +929,37 @@ export default function VehicleDetail() {
 
       {tab === "activity" && (
         <div className="grid lg:grid-cols-3 gap-6">
-          <div className="grid grid-cols-2 lg:grid-cols-2 gap-4 lg:col-span-1 content-start">
-            <KpiCard icon={Eye} label="Views" value={vehicle.activity.views.toLocaleString()} />
-            <KpiCard icon={MessageSquare} label="Inquiries" value={String(vehicle.activity.inquiries)} />
-            <KpiCard icon={Car} label="Test Drives" value="—" />
-            <KpiCard icon={Heart} label="Favorites" value="—" />
+          <div className="grid grid-cols-3 lg:grid-cols-1 gap-4 lg:col-span-1 content-start">
+            <KpiCard icon={Eye} label="Views" value={activityQuery.isLoading ? "…" : (activityQuery.data?.views ?? 0).toLocaleString()} />
+            <KpiCard icon={MessageSquare} label="Inquiries" value={activityQuery.isLoading ? "…" : String(activityQuery.data?.inquiries ?? 0)} />
+            <KpiCard icon={Car} label="Test Drives" value={activityQuery.isLoading ? "…" : String(activityQuery.data?.testDrives ?? 0)} />
           </div>
           <div className="stat-card lg:col-span-2">
             <h3 className="font-display font-semibold mb-4">Recent Activity Log</h3>
-            {logsQuery.isLoading ? (
+            {activityQuery.isLoading ? (
               <div className="text-sm text-muted-foreground flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading logs…
               </div>
-            ) : (logsQuery.data ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">No communication logs yet for this vehicle.</p>
+            ) : (activityQuery.data?.logs ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">No communication logged for this vehicle yet.</p>
             ) : (
               <div className="space-y-3">
-                {(logsQuery.data ?? []).map((l, i) => (
+                {(activityQuery.data?.logs ?? []).map((l, i) => (
                   <div key={i} className="flex items-start gap-3 pb-3 border-b border-border/50 last:border-0">
                     <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
                       <Activity className="h-4 w-4" />
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium">{l.type}</span>
-                        <span className="text-xs text-muted-foreground">{l.date}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="flex items-center gap-2">
+                          <span className="text-sm font-medium capitalize">{l.channel}</span>
+                          <span className={`status-badge text-[10px] ${SOURCE_BADGE[l.source] ?? "bg-slate-100 text-slate-600"}`}>
+                            {SOURCE_LABEL[l.source] ?? l.source}
+                          </span>
+                        </span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">{l.date.slice(0, 10)}</span>
                       </div>
-                      <p className="text-sm text-muted-foreground">{l.description}</p>
+                      <p className="text-sm text-muted-foreground">{l.summary}{l.by ? ` · ${l.by}` : ""}</p>
                     </div>
                   </div>
                 ))}
@@ -1076,168 +968,6 @@ export default function VehicleDetail() {
           </div>
         </div>
       )}
-
-      {/* Mark as Sold dialog — same flow as Close Lead, just with mandatory
-          buyer entry (since no lead provides one) and optional lead link. */}
-      <Dialog
-        open={soldDialogOpen}
-        onOpenChange={(o) => {
-          setSoldDialogOpen(o);
-          // If user cancels, revert any unsaved status flip in the edit form.
-          if (!o && editForm && editForm.status === "Sold" && vehicle.status !== "Sold") {
-            setEditForm({ ...editForm, status: vehicle.status });
-          }
-        }}
-      >
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Mark as Sold — {vehicle.title}</DialogTitle>
-            <DialogDescription>
-              Records a Sale, updates the vehicle's sold price + date, and (if you link a buyer/lead) closes the related records.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid md:grid-cols-2 gap-3">
-            <div>
-              <label className="text-[11px] text-muted-foreground">Link to lead (optional)</label>
-              <Select
-                value={soldForm.linkedLeadId || NONE}
-                onValueChange={(v) => handleSoldLeadPicked(v === NONE ? "" : v)}
-              >
-                <SelectTrigger className="w-full"><SelectValue placeholder="No lead link" /></SelectTrigger>
-                <SelectContent className="max-h-72">
-                  <SelectItem value={NONE}>No lead link</SelectItem>
-                  {(leadsQuery.data?.data ?? [])
-                    .filter((l) => l.vehicleId === vehicle.id && l.status !== "Closed" && l.status !== "Archived")
-                    .map((l) => (
-                      <SelectItem key={l.id} value={l.id}>{l.buyerName} ({l.status})</SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-[11px] text-muted-foreground">Buyer *</label>
-              <Select
-                value={soldForm.linkedBuyerId || ""}
-                onValueChange={handleSoldBuyerPicked}
-              >
-                <SelectTrigger className="w-full"><SelectValue placeholder="Select a buyer…" /></SelectTrigger>
-                <SelectContent className="max-h-72">
-                  {(buyersQuery.data?.data ?? []).map((b) => (
-                    <SelectItem key={b.id} value={b.id}>{b.name} – {b.email}</SelectItem>
-                  ))}
-                  <SelectItem value={OTHER}>Other — enter manually</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {soldForm.linkedBuyerId === OTHER && (
-              <>
-                <input
-                  value={soldForm.buyerName}
-                  onChange={(e) => setSoldForm({ ...soldForm, buyerName: e.target.value })}
-                  placeholder="Buyer name *"
-                  className="border rounded-lg px-3 py-2 text-sm bg-background"
-                />
-                <input
-                  value={soldForm.buyerEmail}
-                  onChange={(e) => setSoldForm({ ...soldForm, buyerEmail: e.target.value })}
-                  placeholder="Buyer email *"
-                  type="email"
-                  className="border rounded-lg px-3 py-2 text-sm bg-background"
-                />
-              </>
-            )}
-            <div>
-              <label className="text-[11px] text-muted-foreground">Sold at ($) *</label>
-              <input
-                type="number"
-                value={soldForm.soldAt}
-                onChange={(e) => setSoldForm({ ...soldForm, soldAt: e.target.value })}
-                className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-muted-foreground">Sale date</label>
-              <input
-                type="date"
-                value={soldForm.saleDate}
-                onChange={(e) => setSoldForm({ ...soldForm, saleDate: e.target.value })}
-                className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-muted-foreground">Payment method</label>
-              <Select
-                value={soldForm.paymentMethod}
-                onValueChange={(v) => setSoldForm({ ...soldForm, paymentMethod: v as typeof soldForm.paymentMethod })}
-              >
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="finance">Finance</SelectItem>
-                  <SelectItem value="bhph">BHPH</SelectItem>
-                  <SelectItem value="trade_in">Trade-in</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-[11px] text-muted-foreground">Payment status</label>
-              <Select
-                value={soldForm.paymentStatus}
-                onValueChange={(v) => {
-                  const ps = v as ClientPaymentStatus;
-                  const soldAtNum = parseFloat(soldForm.soldAt) || 0;
-                  setSoldForm((f) => ({
-                    ...f,
-                    paymentStatus: ps,
-                    amountPaid: ps === "Paid" ? String(soldAtNum) : ps === "Pending" ? "0" : f.amountPaid,
-                  }));
-                }}
-              >
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Paid">Paid</SelectItem>
-                  <SelectItem value="Partial">Partial</SelectItem>
-                  <SelectItem value="Pending">Pending</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-[11px] text-muted-foreground">
-                Amount paid ($) {soldForm.paymentStatus === "Partial" && "*"}
-              </label>
-              <input
-                type="number"
-                value={soldForm.amountPaid}
-                onChange={(e) => setSoldForm({ ...soldForm, amountPaid: e.target.value })}
-                placeholder={
-                  soldForm.paymentStatus === "Paid" ? "Defaults to sold price"
-                  : soldForm.paymentStatus === "Pending" ? "Leave blank (or 0)"
-                  : "Required for Partial"
-                }
-                className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
-              />
-            </div>
-            <textarea
-              value={soldForm.notes}
-              onChange={(e) => setSoldForm({ ...soldForm, notes: e.target.value })}
-              placeholder="Notes (optional)"
-              rows={2}
-              className="border rounded-lg px-3 py-2 text-sm bg-background md:col-span-2"
-            />
-          </div>
-          <DialogFooter>
-            <button onClick={() => setSoldDialogOpen(false)} className="px-4 py-2 text-sm border rounded-lg">Cancel</button>
-            <button
-              onClick={submitSold}
-              disabled={createSale.isPending}
-              className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-60"
-            >
-              {createSale.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Mark sold & record sale
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Edit Spend dialog */}
       <Dialog open={Boolean(editingSpend)} onOpenChange={(o) => !o && setEditingSpend(null)}>
@@ -1253,8 +983,9 @@ export default function VehicleDetail() {
               <label className="text-[11px] text-muted-foreground">Amount ($) *</label>
               <input
                 type="number"
+                min={0}
                 value={editSpendForm.amount}
-                onChange={(e) => setEditSpendForm({ ...editSpendForm, amount: e.target.value })}
+                onChange={(e) => setEditSpendForm({ ...editSpendForm, amount: e.target.value.replace(/-/g, "") })}
                 className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
               />
             </div>

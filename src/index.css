@@ -71,9 +71,19 @@
     @apply border-border;
   }
 
+  /* Lock the shell to the viewport so scrolling only ever happens inside
+     <main> (see AppLayout). Without this, a sub-pixel 100vh rounding or a
+     classic (non-overlay) scrollbar can let the page body scroll too, giving
+     the dashboard a second, redundant scrollbar. */
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', sans-serif;
+    overflow: hidden;
   }
 
   h1, h2, h3, h4, h5, h6 {

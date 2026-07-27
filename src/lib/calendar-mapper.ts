@@ -60,6 +60,9 @@ export interface ServerCalendarEvent {
   /** Linked CRM lead (raw ObjectId — the API does not populate it). */
   lead?: { _id: string } | string | null;
   meetLink: string;
+  /** Backing Google Calendar event id — non-empty ONLY for Google-provisioned
+   *  Meet links. Used to tell a real Google Meet from a user-pasted link. */
+  googleEventId?: string;
   location: string;
   notes: string;
   participants?: ServerParticipant[];
@@ -97,6 +100,9 @@ export interface CalendarEventDisplay {
   createdByEmail?: string;
   createdById?: string;
   meetLink?: string;
+  /** True when the meet link was provisioned by Google (has a backing event);
+   *  false for a user-pasted link. Drives the "Google Meet" vs "Meet Link" UI. */
+  isGoogleMeet: boolean;
   location?: string;
   notes?: string;
   participants: Participant[];
@@ -162,6 +168,7 @@ export function toClientEvent(s: ServerCalendarEvent): CalendarEventDisplay {
     createdByEmail: creator?.email,
     createdById: typeof s.createdBy === "string" ? s.createdBy : creator?._id,
     meetLink: s.meetLink || undefined,
+    isGoogleMeet: !!s.googleEventId,
     location: s.location || undefined,
     notes: s.notes || undefined,
     participants: (s.participants ?? []).map<Participant>((p) => ({

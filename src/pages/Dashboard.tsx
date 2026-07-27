@@ -79,6 +79,14 @@ export default function Dashboard() {
         deltaAsPercent: true,
       },
       {
+        label: "Expenses",
+        value: formatKpiMoney(current.totalExpenses),
+        icon: Receipt,
+        color: "bg-rose-50 text-rose-600",
+        delta: computeDelta(current.totalExpenses, previous?.totalExpenses ?? null),
+        deltaAsPercent: true,
+      },
+      {
         label: "Profit",
         value: formatKpiMoney(current.totalProfit),
         icon: TrendingUp,
@@ -150,7 +158,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-4">
         {statsQuery.isLoading && <SkeletonCards />}
         {statsQuery.error && (
           <div className="col-span-full stat-card text-red-600 flex items-center gap-2">
@@ -235,7 +243,8 @@ export default function Dashboard() {
       {/* Charts Row 2 — Monthly Expenses + Recent Activity */}
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="stat-card">
-          <h3 className="font-display font-semibold mb-4">Monthly Expenses</h3>
+          <h3 className="font-display font-semibold mb-4">Monthly Total Expenses</h3>
+          <p className="text-xs text-muted-foreground -mt-3 mb-3">Operating + reconditioning + cost of vehicles sold</p>
           {chartsQuery.isLoading ? (
             <ChartLoading />
           ) : monthlyExpenses.every((m) => m.total === 0) ? (
@@ -373,7 +382,7 @@ const ACTIVITY_MODULE_STYLES: Record<
 function SkeletonCards() {
   return (
     <>
-      {Array.from({ length: 6 }, (_, i) => (
+      {Array.from({ length: 7 }, (_, i) => (
         <div key={i} className="stat-card animate-pulse">
           <div className="h-8 w-8 rounded-lg bg-muted mb-3" />
           <div className="h-6 w-20 rounded bg-muted" />

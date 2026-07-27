@@ -15,7 +15,10 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
 import { useDecodeVin } from "@/hooks/api/use-vehicles";
-import { ALL_BODY_TYPES, decodedVinToFormPatch, type VehicleFormInput } from "@/lib/vehicle-mapper";
+import {
+  ALL_BODY_TYPES, DRIVETRAIN_OPTIONS, ENGINE_OPTIONS, FUEL_OPTIONS,
+  TRANSMISSION_OPTIONS, decodedVinToFormPatch, type VehicleFormInput,
+} from "@/lib/vehicle-mapper";
 
 const VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/i;
 
@@ -31,7 +34,8 @@ interface Props {
 
 const emptyForm = () => ({
   title: "", company: "", model: "", trim: "", year: "", engine: "",
-  fuel: "", transmission: "", bodyType: "", plant: "",
+  fuel: "", transmission: "", bodyType: "", drivetrain: "", engineSize: "",
+  interiorColor: "", doors: "", plant: "",
   km: "", price: "", discount: "", owners: "", color: "", description: "",
   hosting: "Self" as "Self" | "Platform",
 });
@@ -46,14 +50,16 @@ export function VehicleFormDialog({
   const decodeVinMut = useDecodeVin();
   const [vinError, setVinError] = useState<string | null>(null);
   const [vinDecoded, setVinDecoded] = useState(false);
+  const [engineOther, setEngineOther] = useState(false);
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const imagesInputRef = useRef<HTMLInputElement>(null);
 
   const isVinValid = VIN_RE.test(vin.trim());
+  const engineIsKnown = (ENGINE_OPTIONS as readonly string[]).includes(form.engine);
 
   const reset = () => {
     setForm(emptyForm());
-    setVin(""); setVinError(null); setVinDecoded(false);
+    setVin(""); setVinError(null); setVinDecoded(false); setEngineOther(false);
     setPendingImages([]);
     if (imagesInputRef.current) imagesInputRef.current.value = "";
   };
@@ -64,6 +70,8 @@ export function VehicleFormDialog({
 
   const setField = <K extends keyof ReturnType<typeof emptyForm>>(k: K, v: ReturnType<typeof emptyForm>[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
+  // Numeric fields: strip any "-" so values can never go negative as typed.
+  const setNum = (k: keyof ReturnType<typeof emptyForm>, v: string) => setField(k, v.replace(/-/g, ""));
 
   // Decode runs server-side (NHTSA vPIC via the backend) so the same lookup
   // powers both this dialog and bulk upload, and the field-mapping lives in one
@@ -81,7 +89,11 @@ export function VehicleFormDialog({
         vin: v,
         year: form.year ? parseInt(form.year, 10) : undefined,
       });
-      setForm((f) => ({ ...f, ...decodedVinToFormPatch(decoded) }));
+      const patch = decodedVinToFormPatch(decoded);
+      setForm((f) => ({ ...f, ...patch }));
+      if (patch.engine !== undefined) {
+        setEngineOther(!(ENGINE_OPTIONS as readonly string[]).includes(patch.engine));
+      }
       setVinDecoded(true);
       toast({
         title: "VIN decoded",
@@ -116,12 +128,24 @@ export function VehicleFormDialog({
     }
     const yearNum = parseInt(form.year, 10);
     const priceNum = parseFloat(form.price);
+    const kmNum = form.km ? parseInt(form.km, 10) : undefined;
+    const discountNum = form.discount ? parseFloat(form.discount) : undefined;
+    const ownersNum = form.owners ? parseInt(form.owners, 10) : undefined;
+    const doorsNum = form.doors ? parseInt(form.doors, 10) : undefined;
     if (Number.isNaN(yearNum) || yearNum < 1900 || yearNum > 2100) {
-      toast({ title: "Invalid year", variant: "destructive" });
+      toast({ title: "Invalid year", description: "Enter a year between 1900 and 2100.", variant: "destructive" });
       return;
     }
     if (Number.isNaN(priceNum) || priceNum < 0) {
-      toast({ title: "Invalid price", variant: "destructive" });
+      toast({ title: "Invalid price", description: "Price can't be negative.", variant: "destructive" });
+      return;
+    }
+    if ((kmNum !== undefined && kmNum < 0) || (discountNum !== undefined && discountNum < 0) || (doorsNum !== undefined && doorsNum < 0)) {
+      toast({ title: "Invalid value", description: "KM, discount and doors can't be negative.", variant: "destructive" });
+      return;
+    }
+    if (ownersNum !== undefined && ownersNum < 1) {
+      toast({ title: "Invalid owners", description: "Owner count must be at least 1.", variant: "destructive" });
       return;
     }
 
@@ -131,16 +155,20 @@ export function VehicleFormDialog({
       model: form.model,
       year: yearNum,
       price: priceNum,
-      km: form.km ? parseInt(form.km, 10) : undefined,
-      discount: form.discount ? parseFloat(form.discount) : undefined,
-      owners: form.owners ? parseInt(form.owners, 10) : undefined,
+      km: kmNum,
+      discount: discountNum,
+      owners: ownersNum,
       fuel: form.fuel || undefined,
       transmission: form.transmission || undefined,
       color: form.color || undefined,
+      interiorColor: form.interiorColor || undefined,
       vin: vin.trim() || undefined,
       bodyType: form.bodyType || undefined,
       trim: form.trim || undefined,
       engine: form.engine || undefined,
+      drivetrain: form.drivetrain || undefined,
+      engineSize: form.engineSize || undefined,
+      doors: doorsNum,
       description: form.description || undefined,
       hosting: form.hosting,
     };
@@ -203,27 +231,26 @@ export function VehicleFormDialog({
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Vehicle Details</p>
           <div className="grid md:grid-cols-3 gap-3">
-            {([
-              ["title", "Vehicle Title", "text"],
-              ["company", "Make / Company", "text"],
-              ["model", "Model", "text"],
-              ["trim", "Trim / Series", "text"],
-              ["year", "Year", "number"],
-              ["engine", "Engine", "text"],
-              ["fuel", "Fuel Type", "text"],
-              ["transmission", "Transmission", "text"],
-            ] as const).map(([k, label, type]) => (
-              <div key={k}>
-                <label className="text-[11px] text-muted-foreground">{label}</label>
-                <input
-                  type={type}
-                  value={form[k]}
-                  onChange={(e) => setField(k, e.target.value)}
-                  placeholder={label}
-                  className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background"
-                />
-              </div>
-            ))}
+            <div>
+              <label className="text-[11px] text-muted-foreground">Vehicle Title</label>
+              <input value={form.title} onChange={(e) => setField("title", e.target.value)} placeholder="Vehicle Title" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Make / Company</label>
+              <input value={form.company} onChange={(e) => setField("company", e.target.value)} placeholder="Make / Company" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Model</label>
+              <input value={form.model} onChange={(e) => setField("model", e.target.value)} placeholder="Model" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Trim / Series</label>
+              <input value={form.trim} onChange={(e) => setField("trim", e.target.value)} placeholder="Trim / Series" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Year</label>
+              <input value={form.year} onChange={(e) => setNum("year", e.target.value)} placeholder="Year" type="number" min={1900} max={2100} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
             {/* Body type: canonical-enum dropdown so dealers don't free-form
                 values like "sedan" / "Sedan" / "Sedan/Saloon" inconsistently. */}
             <div>
@@ -239,6 +266,60 @@ export function VehicleFormDialog({
                 ))}
               </select>
             </div>
+            {/* Engine: dropdown of common configs + "Other" free-text escape. */}
+            <div>
+              <label className="text-[11px] text-muted-foreground">Engine</label>
+              <select
+                value={engineOther ? "__other__" : (engineIsKnown ? form.engine : "")}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "__other__") { setEngineOther(true); setField("engine", ""); }
+                  else { setEngineOther(false); setField("engine", val); }
+                }}
+                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background"
+              >
+                <option value="">Select engine…</option>
+                {ENGINE_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                <option value="__other__">Other…</option>
+              </select>
+              {engineOther && (
+                <input
+                  value={form.engine}
+                  onChange={(e) => setField("engine", e.target.value)}
+                  placeholder="e.g. 2.5L · 4-cyl · 170hp"
+                  className="mt-2 w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                />
+              )}
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Fuel Type</label>
+              <select value={form.fuel} onChange={(e) => setField("fuel", e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background">
+                <option value="">Select fuel…</option>
+                {FUEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Transmission</label>
+              <select value={form.transmission} onChange={(e) => setField("transmission", e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background">
+                <option value="">Select transmission…</option>
+                {TRANSMISSION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Drivetrain</label>
+              <select value={form.drivetrain} onChange={(e) => setField("drivetrain", e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background">
+                <option value="">Select drivetrain…</option>
+                {DRIVETRAIN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Engine Size</label>
+              <input value={form.engineSize} onChange={(e) => setField("engineSize", e.target.value)} placeholder="e.g. 2.5 L" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Doors</label>
+              <input value={form.doors} onChange={(e) => setNum("doors", e.target.value)} placeholder="Doors" type="number" min={0} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
           </div>
         </div>
 
@@ -246,15 +327,37 @@ export function VehicleFormDialog({
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Listing & Pricing</p>
           <div className="grid md:grid-cols-3 gap-3">
-            <input value={form.km} onChange={(e) => setField("km", e.target.value)} placeholder="KM Driven" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <input value={form.price} onChange={(e) => setField("price", e.target.value)} placeholder="Price ($) *" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <input value={form.discount} onChange={(e) => setField("discount", e.target.value)} placeholder="Discount ($)" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <input value={form.owners} onChange={(e) => setField("owners", e.target.value)} placeholder="Owner Count" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <input value={form.color} onChange={(e) => setField("color", e.target.value)} placeholder="Color (e.g. Pearl White)" type="text" className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <select value={form.hosting} onChange={(e) => setField("hosting", e.target.value as "Self" | "Platform")} className="border rounded-lg px-3 py-2 text-sm bg-background">
-              <option value="Self">Self Hosted</option>
-              <option value="Platform">Platform</option>
-            </select>
+            <div>
+              <label className="text-[11px] text-muted-foreground">KM Driven</label>
+              <input value={form.km} onChange={(e) => setNum("km", e.target.value)} placeholder="KM Driven" type="number" min={0} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Price ($) *</label>
+              <input value={form.price} onChange={(e) => setNum("price", e.target.value)} placeholder="Price ($)" type="number" min={0} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Discount ($)</label>
+              <input value={form.discount} onChange={(e) => setNum("discount", e.target.value)} placeholder="Discount ($)" type="number" min={0} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Owner Count</label>
+              <input value={form.owners} onChange={(e) => setNum("owners", e.target.value)} placeholder="Owner Count" type="number" min={1} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Color</label>
+              <input value={form.color} onChange={(e) => setField("color", e.target.value)} placeholder="Color (e.g. Pearl White)" type="text" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Interior Color</label>
+              <input value={form.interiorColor} onChange={(e) => setField("interiorColor", e.target.value)} placeholder="Interior color" type="text" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-foreground">Hosting</label>
+              <select value={form.hosting} onChange={(e) => setField("hosting", e.target.value as "Self" | "Platform")} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background">
+                <option value="Self">Self Hosted</option>
+                <option value="Platform">Platform</option>
+              </select>
+            </div>
           </div>
         </div>
 

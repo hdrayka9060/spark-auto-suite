@@ -2,16 +2,20 @@ import { useEffect, useState } from "react";
 import {
   ArrowLeft, Mail, Phone, MessageCircle, MapPin, Calendar, TrendingUp,
   Car as CarIcon, Loader2, AlertCircle, Edit, Trash2, Plus, ArrowRight, Eye,
+  Video, X,
 } from "lucide-react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import {
-  useAddSellerVehicle, useDeleteSeller, useLogSellerCommunication,
-  useRemoveSellerVehicle, useScheduleInspection, useSeller, useUpdateSeller,
-  uploadVehicleImages,
+  useAddSellerVehicle, useDeleteSeller, useDeleteSellerCommunication,
+  useLogSellerCommunication, useRemoveSellerVehicle, useScheduleInspection,
+  useSeller, useUpdateSeller, useUpdateSellerCommunication, uploadVehicleImages,
 } from "@/hooks/api/use-sellers";
 import { useCreateCalendarEvent } from "@/hooks/api/use-calendar";
 import { useStaff } from "@/hooks/api/use-staff";
+import { useAuth } from "@/lib/auth-context";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { ApiError, fileUrl } from "@/lib/api";
+import { ClientMeetingType, ParticipantInput } from "@/lib/calendar-mapper";
 import {
   SELLER_STAGE_LABELS, SellerCommunicationChannel, ServerSellerStage,
 } from "@/lib/seller-mapper";
@@ -45,6 +49,9 @@ export default function SellerDetail() {
   const removeVehicle = useRemoveSellerVehicle(id ?? "");
   const scheduleInspection = useScheduleInspection(id ?? "");
   const logCommunication = useLogSellerCommunication(id ?? "");
+  const updateCommunication = useUpdateSellerCommunication(id ?? "");
+  const deleteCommunication = useDeleteSellerCommunication(id ?? "");
+  const confirm = useConfirm();
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(seedEditForm());
@@ -57,12 +64,31 @@ export default function SellerDetail() {
   const [inspectTime, setInspectTime] = useState("10:00");
   const [inspectAssignee, setInspectAssignee] = useState("");
   const [inspectNotes, setInspectNotes] = useState("");
+  // Meeting details — mirror the Calendar create form.
+  const [inspectMeetingType, setInspectMeetingType] = useState<ClientMeetingType>("physical");
+  const [inspectLocation, setInspectLocation] = useState("");
+  const [inspectCreateMeet, setInspectCreateMeet] = useState(false);
+  const [inspectMeetLink, setInspectMeetLink] = useState("");
+  const [inspectParticipants, setInspectParticipants] = useState<ParticipantInput[]>([]);
+  const [participantPick, setParticipantPick] = useState("");
 
   const [pendingChannel, setPendingChannel] = useState<SellerCommunicationChannel | null>(null);
   const [logMessage, setLogMessage] = useState("");
+  // Inline edit of an existing logged communication.
+  const [editingCommId, setEditingCommId] = useState<string | null>(null);
+  const [editCommText, setEditCommText] = useState("");
   const createCalendarEvent = useCreateCalendarEvent();
   const staffQuery = useStaff();
   const staffOptions = staffQuery.data ?? [];
+  const { state: authState } = useAuth();
+  const user = authState.user;
+
+  // Default the inspection assignee to whoever is booking it (current user).
+  // Runs once the user + staff list are available; only fills an empty slot so
+  // it never fights a manual choice.
+  useEffect(() => {
+    if (user?._id && !inspectAssignee) setInspectAssignee(user._id);
+  }, [user, inspectAssignee]);
 
   const canEdit = useCan("CRM – Sellers", "edit");
   const canDelete = useCan("CRM – Sellers", "delete");
@@ -197,6 +223,23 @@ export default function SellerDetail() {
     }
   };
 
+  const addParticipant = () => {
+    if (!participantPick) return;
+    const staff = staffOptions.find((s) => s.id === participantPick);
+    if (!staff) return;
+    if (inspectParticipants.some((p) => p.userId === staff.id)) {
+      setParticipantPick("");
+      return;
+    }
+    setInspectParticipants((prev) => [
+      ...prev,
+      { userType: "staff", userId: staff.id, name: staff.name, email: staff.email || undefined },
+    ]);
+    setParticipantPick("");
+  };
+  const removeParticipant = (userId?: string) =>
+    setInspectParticipants((prev) => prev.filter((p) => p.userId !== userId));
+
   const handleScheduleInspection = async () => {
     if (!inspectVehicleId) {
       toast({ title: "Pick a vehicle", description: "Select which car to inspect.", variant: "destructive" });
@@ -204,6 +247,19 @@ export default function SellerDetail() {
     }
     if (!inspectDate || !inspectTime) {
       toast({ title: "Pick date & time", description: "Both date and time are required.", variant: "destructive" });
+      return;
+    }
+    // Staff assignment is mandatory — an inspection must have someone responsible.
+    if (!inspectAssignee) {
+      toast({ title: "Assign a staff member", description: "Select who is responsible for this inspection.", variant: "destructive" });
+      return;
+    }
+    if (inspectMeetingType === "physical" && !inspectLocation.trim()) {
+      toast({ title: "Add a location", description: "Enter where the inspection takes place.", variant: "destructive" });
+      return;
+    }
+    if (inspectMeetingType === "virtual" && !inspectCreateMeet && !inspectMeetLink.trim()) {
+      toast({ title: "Add a link", description: "Paste a meeting link or tick “Create Google Meet link”.", variant: "destructive" });
       return;
     }
     const start = new Date(`${inspectDate}T${inspectTime}:00`);
@@ -218,13 +274,23 @@ export default function SellerDetail() {
     const listing = seller?.vehiclesListed.find((v) => v.vehicleId === inspectVehicleId);
     const vehicleTitle = listing?.title || "Vehicle";
 
+    // Auto-attach the seller as a participant so the event surfaces on their
+    // filtered calendar (same fix as Lead/Buyer test-drive), then add any
+    // extra staff participants the user picked (deduped).
+    const participants: ParticipantInput[] = [
+      ...(seller?.id
+        ? [{ userType: "seller" as const, userId: seller.id, name: seller.name, email: seller.email }]
+        : []),
+      ...inspectParticipants,
+    ];
+
     try {
       // 1) Update the seller (sets inspectionDate + moves stage → Inspection + logs activity).
       await scheduleInspection.mutateAsync({
         inspectionDate: start.toISOString(),
         notes: inspectNotes || undefined,
         vehicleId: inspectVehicleId,
-        assignedTo: inspectAssignee || undefined,
+        assignedTo: inspectAssignee,
       });
       // 2) Push a real calendar event so /calendar shows it. Independent of the
       //    seller update — if the event call fails, the inspection is still
@@ -233,29 +299,18 @@ export default function SellerDetail() {
         await createCalendarEvent.mutateAsync({
           title: `Inspection — ${vehicleTitle}`,
           type: "inspection",
-          // Vehicle inspections happen in-person.
-          meetingType: "physical",
+          meetingType: inspectMeetingType,
+          createMeetLink: inspectMeetingType === "virtual" ? inspectCreateMeet : undefined,
+          meetLink: inspectMeetingType === "virtual" ? inspectMeetLink.trim() || undefined : undefined,
+          location: inspectMeetingType === "physical" ? inspectLocation.trim() || undefined : undefined,
           startDateTime: start.toISOString(),
           endDateTime: end.toISOString(),
           customerName: seller?.name,
           customerEmail: seller?.email,
           customerPhone: seller?.phone,
           vehicleId: inspectVehicleId,
-          assignedToId: inspectAssignee || undefined,
-          // Attach the seller as a participant so the event shows up on
-          // their filtered calendar (same fix as Lead/Buyer test-drive).
-          ...(seller?.id
-            ? {
-                participants: [
-                  {
-                    userType: "seller" as const,
-                    userId: seller.id,
-                    name: seller.name,
-                    email: seller.email,
-                  },
-                ],
-              }
-            : {}),
+          assignedToId: inspectAssignee,
+          participants: participants.length ? participants : undefined,
           notes: inspectNotes || undefined,
         });
         toast({ title: "Inspection booked", description: `${vehicleTitle} · ${inspectDate} ${inspectTime}` });
@@ -266,8 +321,13 @@ export default function SellerDetail() {
       setInspectVehicleId("");
       setInspectDate("");
       setInspectTime("10:00");
-      setInspectAssignee("");
+      setInspectAssignee(user?._id ?? "");
       setInspectNotes("");
+      setInspectMeetingType("physical");
+      setInspectLocation("");
+      setInspectCreateMeet(false);
+      setInspectMeetLink("");
+      setInspectParticipants([]);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Could not schedule";
       toast({ title: "Schedule failed", description: msg, variant: "destructive" });
@@ -284,6 +344,42 @@ export default function SellerDetail() {
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Could not log";
       toast({ title: "Log failed", description: msg, variant: "destructive" });
+    }
+  };
+
+  const startEditComm = (commId: string, current: string) => {
+    setEditingCommId(commId);
+    setEditCommText(current);
+  };
+  const cancelEditComm = () => {
+    setEditingCommId(null);
+    setEditCommText("");
+  };
+  const saveEditComm = async () => {
+    if (!editingCommId || !editCommText.trim()) return;
+    try {
+      await updateCommunication.mutateAsync({ commId: editingCommId, message: editCommText.trim() });
+      toast({ title: "Communication updated" });
+      cancelEditComm();
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Could not update";
+      toast({ title: "Update failed", description: msg, variant: "destructive" });
+    }
+  };
+  const handleDeleteComm = async (commId: string) => {
+    const ok = await confirm({
+      title: "Delete this communication?",
+      description: "This removes the logged entry. This can't be undone.",
+      confirmText: "Delete",
+    });
+    if (!ok) return;
+    try {
+      await deleteCommunication.mutateAsync(commId);
+      toast({ title: "Communication deleted" });
+      if (editingCommId === commId) cancelEditComm();
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Could not delete";
+      toast({ title: "Delete failed", description: msg, variant: "destructive" });
     }
   };
 
@@ -509,28 +605,107 @@ export default function SellerDetail() {
         )}
       </div>
 
+      {/* Communications log */}
+      <div className="stat-card">
+        <h3 className="font-display font-semibold mb-4 flex items-center gap-2">
+          <MessageCircle className="h-4 w-4" /> Communications ({seller.communications.length})
+        </h3>
+        {seller.communications.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-3">
+            No communications logged yet. Use Send Email / Call / WhatsApp above to log one.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {seller.communications.map((c, i) => {
+              const isEditing = Boolean(c.id) && editingCommId === c.id;
+              return (
+                <div key={c.id || i} className="flex gap-3 pb-3 border-b last:border-0 last:pb-0">
+                  <span className="status-badge bg-primary/10 text-primary h-fit shrink-0">{c.channelLabel}</span>
+                  <div className="flex-1 min-w-0">
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={editCommText}
+                          onChange={(e) => setEditCommText(e.target.value)}
+                          rows={2}
+                          className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                        />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={saveEditComm}
+                            disabled={!editCommText.trim() || updateCommunication.isPending}
+                            className="bg-primary text-primary-foreground px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-90 disabled:opacity-60 flex items-center gap-1"
+                          >
+                            {updateCommunication.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                            Save
+                          </button>
+                          <button onClick={cancelEditComm} className="px-3 py-1.5 rounded-lg text-xs border">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm whitespace-pre-wrap break-words">{c.message}</p>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <p className="text-xs text-muted-foreground">{c.date}</p>
+                          {canEdit && c.id && (
+                            <button
+                              onClick={() => startEditComm(c.id, c.message)}
+                              className="text-muted-foreground hover:text-primary"
+                              title="Edit communication"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {canDelete && c.id && (
+                            <button
+                              onClick={() => handleDeleteComm(c.id)}
+                              disabled={deleteCommunication.isPending}
+                              className="text-muted-foreground hover:text-red-600 disabled:opacity-50"
+                              title="Delete communication"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Activity Timeline + Inspection */}
       <div className="grid lg:grid-cols-3 gap-4">
-        <div className="stat-card lg:col-span-2">
-          <h3 className="font-display font-semibold mb-4 flex items-center gap-2">
+        <div className="stat-card lg:col-span-2 flex flex-col overflow-hidden">
+          <h3 className="font-display font-semibold mb-4 flex items-center gap-2 shrink-0">
             <Calendar className="h-4 w-4" /> Activity Timeline
           </h3>
           {seller.activity.length === 0 ? (
             <p className="text-sm text-muted-foreground py-3">No activity logged yet.</p>
           ) : (
-            <div className="space-y-3">
-              {seller.activity.map((a, i) => (
-                <div key={i} className="flex gap-3 pb-3 border-b last:border-0 last:pb-0">
-                  <div className="h-2 w-2 rounded-full bg-primary mt-1.5 shrink-0" />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium">{a.type}</p>
-                      <p className="text-xs text-muted-foreground">{a.date}</p>
+            // Fill the card (its height is set by the taller sibling — the
+            // Inspection card — via the grid's stretch), then scroll only once
+            // the list exceeds that height. On mobile it stacks, so cap it to a
+            // sensible height instead. The absolute layer keeps the list out of
+            // the card's intrinsic height so the row is sized by the sibling.
+            <div className="flex-1 min-h-0 lg:relative">
+              <div className="space-y-3 max-h-96 overflow-y-auto overscroll-contain pr-1 lg:max-h-none lg:absolute lg:inset-0">
+                {seller.activity.map((a, i) => (
+                  <div key={i} className="flex gap-3 pb-3 border-b last:border-0 last:pb-0">
+                    <div className="h-2 w-2 rounded-full bg-primary mt-1.5 shrink-0" />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium">{a.type}</p>
+                        <p className="text-xs text-muted-foreground">{a.date}</p>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{a.detail}</p>
                     </div>
-                    <p className="text-sm text-muted-foreground">{a.detail}</p>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -583,19 +758,119 @@ export default function SellerDetail() {
             </div>
 
             <div>
-              <label className="text-[11px] text-muted-foreground">Assign to staff</label>
+              <label className="text-[11px] text-muted-foreground">Assign to staff *</label>
               <select
                 value={inspectAssignee}
                 onChange={(e) => setInspectAssignee(e.target.value)}
                 className="w-full border rounded-lg px-2 py-2 text-sm bg-background"
               >
-                <option value="">Unassigned</option>
+                <option value="">Select staff…</option>
                 {staffOptions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}{s.roleName ? ` · ${s.roleName}` : ""}
+                    {s.name}{s.roleName ? ` · ${s.roleName}` : ""}{user?._id === s.id ? " (you)" : ""}
                   </option>
                 ))}
               </select>
+              {!inspectAssignee && (
+                <p className="text-[10px] text-amber-700 mt-0.5">Required — an inspection needs a responsible staff member.</p>
+              )}
+            </div>
+
+            {/* Meeting type — physical (location) or virtual (paste/create link). */}
+            <div className="border rounded-lg p-2.5 space-y-2 bg-muted/30">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Meeting type</p>
+              <div className="flex gap-3 text-sm">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={inspectMeetingType === "physical"}
+                    onChange={() => { setInspectMeetingType("physical"); setInspectCreateMeet(false); }}
+                  />
+                  <MapPin className="h-3.5 w-3.5" /> Physical
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={inspectMeetingType === "virtual"}
+                    onChange={() => setInspectMeetingType("virtual")}
+                  />
+                  <Video className="h-3.5 w-3.5" /> Virtual
+                </label>
+              </div>
+              {inspectMeetingType === "physical" ? (
+                <input
+                  value={inspectLocation}
+                  onChange={(e) => setInspectLocation(e.target.value)}
+                  placeholder="Address or place *"
+                  className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                />
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={inspectCreateMeet}
+                      onChange={(e) => setInspectCreateMeet(e.target.checked)}
+                    />
+                    <Video className="h-3.5 w-3.5 text-violet-500" /> Create Google Meet link
+                  </label>
+                  <input
+                    value={inspectMeetLink}
+                    onChange={(e) => setInspectMeetLink(e.target.value)}
+                    placeholder="Or paste an existing meet/zoom/teams link"
+                    className="w-full border rounded-md px-2 py-1.5 text-sm bg-background"
+                    disabled={inspectCreateMeet}
+                  />
+                  {inspectCreateMeet && (
+                    <p className="text-[10px] text-muted-foreground">A Google Meet link is generated when you save.</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Participants — seller is auto-added; add extra staff here. */}
+            <div className="border rounded-lg p-2.5 space-y-2 bg-muted/20">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Participants</p>
+              <div className="flex gap-2">
+                <select
+                  value={participantPick}
+                  onChange={(e) => setParticipantPick(e.target.value)}
+                  className="flex-1 border rounded-md px-2 py-1.5 text-sm bg-background"
+                >
+                  <option value="">Add staff…</option>
+                  {staffOptions
+                    .filter((s) => !inspectParticipants.some((p) => p.userId === s.id))
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={addParticipant}
+                  disabled={!participantPick}
+                  className="px-2.5 py-1.5 rounded-md bg-muted text-sm font-medium hover:bg-muted/80 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">{seller.name} (seller) is added automatically.</p>
+              {inspectParticipants.length > 0 && (
+                <ul className="space-y-1">
+                  {inspectParticipants.map((p) => (
+                    <li key={p.userId} className="flex items-center justify-between text-sm bg-background border rounded-md px-2 py-1">
+                      <span className="truncate">{p.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeParticipant(p.userId)}
+                        className="text-muted-foreground hover:text-red-600 shrink-0"
+                        title="Remove participant"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             <input
@@ -612,7 +887,8 @@ export default function SellerDetail() {
                   createCalendarEvent.isPending ||
                   !inspectVehicleId ||
                   !inspectDate ||
-                  !inspectTime
+                  !inspectTime ||
+                  !inspectAssignee
                 }
                 className="w-full bg-primary text-primary-foreground py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2"
               >

@@ -6,9 +6,8 @@ interface JourneyStepperProps {
 }
 
 /**
- * Horizontal stepper on desktop; horizontally-scrollable on mobile.
- * Past stages render as completed (filled + check), current as active
- * (ring + primary), future as muted.
+ * Horizontal stepper (scrolls on mobile), storefront-themed. Past stages render
+ * completed (red + check), current active (red + ring), future muted.
  */
 export default function JourneyStepper({ steps, currentKey }: JourneyStepperProps) {
   const currentIdx = Math.max(0, steps.findIndex((s) => s.key === currentKey));
@@ -23,10 +22,10 @@ export default function JourneyStepper({ steps, currentKey }: JourneyStepperProp
               <div className="flex items-center gap-2">
                 <span
                   className={[
-                    "grid h-7 w-7 place-items-center rounded-full text-xs font-semibold transition",
-                    done && "bg-primary text-primary-foreground",
-                    active && "bg-primary text-primary-foreground ring-4 ring-primary/15",
-                    !done && !active && "bg-muted text-muted-foreground",
+                    "grid h-7 w-7 place-items-center rounded-full text-xs font-bold transition",
+                    done && "bg-[#DB2526] text-white",
+                    active && "bg-[#DB2526] text-white ring-4 ring-[#DB2526]/25",
+                    !done && !active && "bg-[#3a3a3a] text-white/50",
                   ]
                     .filter(Boolean)
                     .join(" ")}
@@ -35,7 +34,7 @@ export default function JourneyStepper({ steps, currentKey }: JourneyStepperProp
                 </span>
                 <span
                   className={`whitespace-nowrap text-xs font-medium ${
-                    active ? "text-foreground" : done ? "text-foreground/70" : "text-muted-foreground"
+                    active ? "text-white" : done ? "text-white/70" : "text-white/40"
                   }`}
                 >
                   {step.label}
@@ -43,7 +42,7 @@ export default function JourneyStepper({ steps, currentKey }: JourneyStepperProp
               </div>
               {i < steps.length - 1 && (
                 <span
-                  className={`h-px w-8 sm:w-12 ${i < currentIdx ? "bg-primary" : "bg-border"}`}
+                  className={`h-px w-8 sm:w-12 ${i < currentIdx ? "bg-[#DB2526]" : "bg-[#3a3a3a]"}`}
                   aria-hidden
                 />
               )}

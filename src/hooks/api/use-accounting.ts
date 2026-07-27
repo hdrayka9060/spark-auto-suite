@@ -23,17 +23,20 @@ export interface SalesListFilters {
   paymentStatus?: ClientPaymentStatus | "All";
   startDate?: string;
   endDate?: string;
+  page?: number;
+  limit?: number;
 }
 
 export function useSales(filters: SalesListFilters = {}) {
-  const { search, paymentStatus = "All", startDate, endDate } = filters;
+  const { search, paymentStatus = "All", startDate, endDate, page = 1, limit = 200 } = filters;
   const serverStatus = paymentStatus === "All" ? undefined : paymentStatusToServer(paymentStatus);
   return useQuery({
-    queryKey: [...ACCOUNTING_KEY, "sales", { search, paymentStatus, startDate, endDate }],
+    queryKey: [...ACCOUNTING_KEY, "sales", { search, paymentStatus, startDate, endDate, page, limit }],
     queryFn: async () => {
       const res = await api<PaginatedServerResponse<ServerSale>>("/accounting/sales", {
-        query: { search, paymentStatus: serverStatus, startDate, endDate, limit: 200 },
+        query: { search, paymentStatus: serverStatus, startDate, endDate, page, limit },
       });
+      // res carries { total, page, limit, totalPages, hasNext, hasPrev }.
       return { ...res, data: res.data.map(toClientSale) };
     },
   });
@@ -55,6 +58,54 @@ export function useExpenses(filters: ExpensesListFilters = {}) {
         query: { category: serverCategory, startDate, endDate, limit: 500 },
       });
       return { ...res, data: res.data.map(toClientExpense) };
+    },
+  });
+}
+
+/**
+ * One reconditioning spend flattened out of a vehicle's `spends[]`. Cost-of-goods,
+ * surfaced read-only in Accounting — NOT an operating expense (never double-counted
+ * against profit; see AccountingService.getReconditioningSpends).
+ */
+export interface ReconditioningSpend {
+  id: string;
+  vehicleId: string;
+  vehicleTitle: string;
+  vehicleNumber?: string;
+  amount: number;
+  category: string;
+  description: string;
+  date: string;
+  by: string;
+}
+
+export function useReconditioningSpends(startDate?: string, endDate?: string) {
+  return useQuery({
+    queryKey: [...ACCOUNTING_KEY, "reconditioning", { startDate, endDate }],
+    queryFn: async () => {
+      const res = await api<{
+        items: Array<{
+          _id: string; vehicleId: string; vehicleTitle: string; vehicleNumber?: string;
+          amount: number; category: string; description: string; date: string; by: string;
+        }>;
+        totalAmount: number;
+        count: number;
+      }>("/accounting/reconditioning-spends", { query: { startDate, endDate } });
+      return {
+        items: (res.items ?? []).map<ReconditioningSpend>((x) => ({
+          id: x._id,
+          vehicleId: x.vehicleId,
+          vehicleTitle: x.vehicleTitle,
+          vehicleNumber: x.vehicleNumber,
+          amount: x.amount ?? 0,
+          category: x.category || "Other",
+          description: x.description ?? "",
+          date: x.date ? x.date.slice(0, 10) : "",
+          by: x.by ?? "",
+        })),
+        totalAmount: res.totalAmount ?? 0,
+        count: res.count ?? 0,
+      };
     },
   });
 }

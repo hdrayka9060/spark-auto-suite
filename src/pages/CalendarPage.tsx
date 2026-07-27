@@ -24,6 +24,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import {
   useCalendarEvents,
+  useCalendarDirectory,
   useCreateCalendarEvent,
   useUpdateCalendarEvent,
   useDeleteCalendarEvent,
@@ -33,11 +34,8 @@ import {
   getDayRange,
   type CalendarFilter,
 } from "@/hooks/api/use-calendar";
-import { useBuyers } from "@/hooks/api/use-buyers";
-import { useSellers } from "@/hooks/api/use-sellers";
 import { useVehicles } from "@/hooks/api/use-vehicles";
-import { useStaff } from "@/hooks/api/use-staff";
-import { useLeads } from "@/hooks/api/use-leads";
+import { allModules } from "@/data/staff";
 import { ApiError } from "@/lib/api";
 import {
   CalendarEventDisplay,
@@ -267,35 +265,51 @@ export default function CalendarPage() {
   const updateEvent = useUpdateCalendarEvent();
   const deleteEvent = useDeleteCalendarEvent();
   const removeParticipant = useRemoveParticipant();
-  const buyersQuery = useBuyers({});
-  const sellersQuery = useSellers({});
   const vehiclesQuery = useVehicles({ limit: 100 });
-  const staffQuery = useStaff();
-  const leadsQuery = useLeads({});
+  // Attendee directory (staff/buyers/sellers/leads) — one Calendar:view-gated
+  // call that works for non-admin calendar users who lack CRM/Staff read perms.
+  const directoryQuery = useCalendarDirectory();
+  const staff = directoryQuery.data?.staff ?? [];
+  const buyers = directoryQuery.data?.buyers ?? [];
+  const sellers = directoryQuery.data?.sellers ?? [];
+  const leads = directoryQuery.data?.leads ?? [];
 
   // Build the unified user directory used by the participant picker AND
   // the "view calendar of" search. Merging here keeps the combobox simple.
   const allUsers = useMemo<CalendarUserOption[]>(() => {
-    const staff: CalendarUserOption[] = (staffQuery.data ?? []).map((s) => ({
+    const dir = directoryQuery.data;
+    const staffOpts: CalendarUserOption[] = (dir?.staff ?? []).map((s) => ({
       id: s.id,
       userType: "staff",
       name: s.name,
       email: s.email,
     }));
-    const buyers: CalendarUserOption[] = (buyersQuery.data?.data ?? []).map((b) => ({
+    const buyerOpts: CalendarUserOption[] = (dir?.buyers ?? []).map((b) => ({
       id: b.id,
       userType: "buyer",
       name: b.name,
       email: b.email,
     }));
-    const sellers: CalendarUserOption[] = (sellersQuery.data?.data ?? []).map((s) => ({
+    const sellerOpts: CalendarUserOption[] = (dir?.sellers ?? []).map((s) => ({
       id: s.id,
       userType: "seller",
       name: s.name,
       email: s.email,
     }));
-    return [...staff, ...buyers, ...sellers];
-  }, [staffQuery.data, buyersQuery.data, sellersQuery.data]);
+    return [...staffOpts, ...buyerOpts, ...sellerOpts];
+  }, [directoryQuery.data]);
+
+  // Whether the signed-in user has full (admin) access — mirrors the backend
+  // `isAdminRole`: a role granting every action on every module. Used to let
+  // admins edit/delete any event, not just ones they created or are assigned.
+  const isAdmin = useMemo(() => {
+    const perms = currentUser?.roleId?.permissions;
+    if (!Array.isArray(perms)) return false;
+    return allModules.every((m) => {
+      const entry = perms.find((p) => p.module === m);
+      return !!entry && (["view", "edit", "delete"] as const).every((a) => entry.actions.includes(a));
+    });
+  }, [currentUser]);
 
   // ── Event form state ───────────────────────────────────────────────────
   const [form, setForm] = useState<EventForm>(EMPTY_FORM);
@@ -364,6 +378,9 @@ export default function CalendarPage() {
     setForm({
       ...EMPTY_FORM,
       date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+      // Every event must have an assigned staff member; default to self. The
+      // user can reassign in the form. Backend also falls back to the creator.
+      assignedToId: currentUser?._id ?? "",
     });
     setFormMode({ kind: "create" });
   };
@@ -377,7 +394,7 @@ export default function CalendarPage() {
 
   // Pre-fill buyer-derived fields when a buyer is selected from the dropdown.
   const onBuyerSelect = (buyerId: string) => {
-    const buyer = (buyersQuery.data?.data ?? []).find((b) => b.id === buyerId);
+    const buyer = buyers.find((b) => b.id === buyerId);
     setForm((f) => ({
       ...f,
       buyerId,
@@ -395,7 +412,7 @@ export default function CalendarPage() {
       setForm((f) => ({ ...f, leadId: "" }));
       return;
     }
-    const lead = (leadsQuery.data?.data ?? []).find((l) => l.id === leadId);
+    const lead = leads.find((l) => l.id === leadId);
     if (!lead) {
       setForm((f) => ({ ...f, leadId }));
       return;
@@ -575,7 +592,7 @@ export default function CalendarPage() {
           users={allUsers}
           value={calendarFilter}
           onChange={handleCalendarFilterChange}
-          loading={staffQuery.isLoading || buyersQuery.isLoading || sellersQuery.isLoading}
+          loading={directoryQuery.isLoading}
           currentUserId={currentUserOption?.id}
         />
         {/* Context badge — makes it obvious which calendar is being shown.
@@ -674,11 +691,11 @@ export default function CalendarPage() {
             setForm={setForm}
             onBuyerSelect={onBuyerSelect}
             onLeadSelect={onLeadSelect}
-            buyers={buyersQuery.data?.data ?? []}
-            sellers={sellersQuery.data?.data ?? []}
-            staff={staffQuery.data ?? []}
+            buyers={buyers}
+            sellers={sellers}
+            staff={staff}
             vehicles={vehiclesQuery.data?.data ?? []}
-            leads={leadsQuery.data?.data ?? []}
+            leads={leads}
           />
           <DialogFooter>
             <Button variant="outline" onClick={closeForm}>Cancel</Button>
@@ -703,8 +720,21 @@ export default function CalendarPage() {
           {activeEvent && (
             <EventDetailContent
               event={activeEvent}
-              canEdit={canEdit}
-              canDelete={canDelete}
+              // Only the creator, the assigned staff, or an admin may edit/
+              // delete — mirrors the backend authorization so participants with
+              // an edit-capable role don't see affordances that would 403.
+              canEdit={
+                canEdit &&
+                (isAdmin ||
+                  activeEvent.createdById === currentUser?._id ||
+                  activeEvent.assignedToId === currentUser?._id)
+              }
+              canDelete={
+                canDelete &&
+                (isAdmin ||
+                  activeEvent.createdById === currentUser?._id ||
+                  activeEvent.assignedToId === currentUser?._id)
+              }
               onEdit={() => {
                 openEdit(activeEvent);
                 setDetailEventId(null);
@@ -1085,7 +1115,7 @@ function EventForm({
           onChange={(e) => setForm({ ...form, assignedToId: e.target.value })}
           className="border rounded-lg px-3 py-2 text-sm bg-background"
         >
-          <option value="">Assigned staff (optional)…</option>
+          <option value="">Assigned staff (defaults to you)…</option>
           {staff.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -1324,7 +1354,11 @@ function EventDetailContent({
             <p className="flex items-start gap-2">
               <Video className="h-4 w-4 text-violet-500 shrink-0 mt-0.5" />
               <span className={event.meetLink ? "" : "text-muted-foreground italic"}>
-                {event.meetLink ? "Virtual — Google Meet" : "Virtual — no link yet"}
+                {event.meetLink
+                  ? event.isGoogleMeet
+                    ? "Virtual — Google Meet"
+                    : "Virtual"
+                  : "Virtual — no link yet"}
               </span>
             </p>
           )}
@@ -1341,7 +1375,7 @@ function EventDetailContent({
               className="flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-4 py-2 rounded-md"
             >
               <Video className="h-4 w-4" />
-              Join with Google Meet
+              {event.isGoogleMeet ? "Join with Google Meet" : "Join with Meet Link"}
               <ExternalLink className="h-3.5 w-3.5 opacity-80" />
             </a>
             <p className="text-xs text-muted-foreground text-center break-all">

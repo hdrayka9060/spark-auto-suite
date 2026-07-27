@@ -9,11 +9,11 @@
 
 export type ServerLeadSource = "website" | "google_ads" | "meta_ads" | "referral" | "walk_in";
 export type ServerLeadStatus = "new" | "contacted" | "test_drive" | "negotiation" | "closed" | "archived";
-export type ServerLeadChannel = "call" | "email" | "whatsapp" | "sms" | "offline";
+export type ServerLeadChannel = "call" | "email" | "whatsapp" | "sms" | "offline" | "website";
 
 export type ClientLeadSource = "Website" | "Google Ads" | "Meta Ads" | "Referral" | "Walk-in";
 export type ClientLeadStatus = "New" | "Contacted" | "Test Drive" | "Negotiation" | "Closed" | "Archived";
-export type ClientLeadChannel = "Call" | "Email" | "WhatsApp" | "SMS" | "Offline";
+export type ClientLeadChannel = "Call" | "Email" | "WhatsApp" | "SMS" | "Offline" | "Website";
 
 export interface ServerLead {
   _id: string;
@@ -108,6 +108,7 @@ const CHANNEL_TO_CLIENT: Record<ServerLeadChannel, ClientLeadChannel> = {
   whatsapp: "WhatsApp",
   sms: "SMS",
   offline: "Offline",
+  website: "Website",
 };
 const CHANNEL_TO_SERVER: Record<ClientLeadChannel, ServerLeadChannel> = {
   Call: "call",
@@ -115,6 +116,7 @@ const CHANNEL_TO_SERVER: Record<ClientLeadChannel, ServerLeadChannel> = {
   WhatsApp: "whatsapp",
   SMS: "sms",
   Offline: "offline",
+  Website: "website",
 };
 
 export const ALL_LEAD_STATUSES: ClientLeadStatus[] = ["New", "Contacted", "Test Drive", "Negotiation", "Closed", "Archived"];
@@ -199,6 +201,12 @@ export interface LeadCreateInput {
   status?: ClientLeadStatus;
   assignedToId?: string;
   notes?: string;
+  // Sale details — only sent when creating a lead directly as Closed.
+  soldAt?: number;
+  amountPaid?: number;
+  paymentMethod?: "cash" | "finance" | "bhph" | "trade_in";
+  paymentStatus?: "paid" | "partial" | "pending";
+  saleDate?: string;
 }
 
 export function toServerLeadCreatePayload(input: LeadCreateInput) {
@@ -209,6 +217,13 @@ export function toServerLeadCreatePayload(input: LeadCreateInput) {
     status: input.status ? STATUS_TO_SERVER[input.status] : undefined,
     assignedTo: input.assignedToId,
     notes: input.notes,
+    // Passed through to the backend, which routes closed-on-create through the
+    // unified sale flow. Undefined for non-closed leads (stripped server-side).
+    soldAt: input.soldAt,
+    amountPaid: input.amountPaid,
+    paymentMethod: input.paymentMethod,
+    paymentStatus: input.paymentStatus,
+    saleDate: input.saleDate,
   };
 }
 

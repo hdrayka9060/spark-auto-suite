@@ -178,18 +178,14 @@ export default function FacebookListings() {
   // comments — not conversations. The backend cron still keeps threads fresh.
   useAutoSync(() => syncAllEngagement.mutateAsync(), liveSyncOn);
 
-  // Unread badge on the Listings tab: total unread comments across all listings.
-  const allListings = useFacebookListings({}).data ?? [];
-  const totalUnreadComments = allListings.reduce((sum, l) => sum + (l.unreadComments || 0), 0);
-
   return (
     <div className="animate-fade-in">
       <div className="module-header">
         <div>
           <h1 className="module-title">Facebook Listings</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Publish inventory to your Facebook Page, manage destinations, and work
-            comments — all from CDMS.
+            Publish inventory to your Facebook Page, work comments, and track
+            analytics — all from CDMS.
           </p>
         </div>
         {liveSyncOn ? (
@@ -214,13 +210,8 @@ export default function FacebookListings() {
       >
         <TabsList>
           <TabsTrigger value="publish">Publish</TabsTrigger>
-          <TabsTrigger value="listings">
-            Listings
-            <CountBadge n={totalUnreadComments} />
-          </TabsTrigger>
-          {/* Inbox (Messenger) hidden for now — re-add this trigger + the
-              <TabsContent value="inbox"> below to bring it back. */}
-          <TabsTrigger value="destinations">Destinations</TabsTrigger>
+          <TabsTrigger value="listings">Listings</TabsTrigger>
+          <TabsTrigger value="page">Page</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
 
@@ -230,8 +221,7 @@ export default function FacebookListings() {
         <TabsContent value="listings">
           <ListingsTab openListingRef={openListingRef} />
         </TabsContent>
-        {/* Inbox content hidden for now (see the commented trigger above). */}
-        <TabsContent value="destinations">
+        <TabsContent value="page">
           <DestinationsTab />
         </TabsContent>
         <TabsContent value="analytics">
@@ -265,7 +255,6 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
   const confirm = useConfirm();
   const connectionsQuery = useFacebookConnections();
   const connections = (connectionsQuery.data ?? []).filter((c) => c.status === "active");
-  const groupTargets = useGroupTargets().data ?? [];
 
   const [search, setSearch] = useState("");
   const vehiclesQuery = useVehicles({ search: search || undefined, limit: 24 });
@@ -282,11 +271,9 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
   const [location, setLocation] = useState("");
   const [contact, setContact] = useState("");
   const [priceOverride, setPriceOverride] = useState("");
+  // Posts go to the Facebook Page feed only. Marketplace catalog (partner-gated)
+  // and Groups (manual) were removed — a plain Page post needs no special access.
   const [destIds, setDestIds] = useState<string[]>([]);
-  const [mktIds, setMktIds] = useState<string[]>([]);
-  const [groupIds, setGroupIds] = useState<string[]>([]);
-  const [scheduleOn, setScheduleOn] = useState(false);
-  const [scheduleAt, setScheduleAt] = useState("");
 
   const templatesQuery = useFacebookTemplates();
   const templates = templatesQuery.data ?? [];
@@ -324,10 +311,6 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
 
   const toggleDest = (id: string) =>
     setDestIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  const toggleMkt = (id: string) =>
-    setMktIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  const toggleGroup = (id: string) =>
-    setGroupIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const saveTemplate = async () => {
     if (!saveName.trim()) {
@@ -370,19 +353,17 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
       toast.error("Title is required");
       return;
     }
-    if (!destIds.length && !mktIds.length && !groupIds.length) {
-      toast.error("Select at least one destination");
+    if (!destIds.length) {
+      toast.error("Select at least one Facebook Page");
       return;
     }
-    const scheduledAt =
-      scheduleOn && scheduleAt ? new Date(scheduleAt).toISOString() : undefined;
 
     try {
       let total = 0;
       let failed = 0;
       for (const v of selected) {
         const vars = varsFor(v);
-        const base = {
+        const r = await createListings.mutateAsync({
           vehicleId: v.id,
           vehicleTitle: v.title,
           title: applyTemplateVars(titleTpl, vars).trim() || v.title,
@@ -393,43 +374,17 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
           photos: (v.gallery ?? []).filter(isImagePath),
           location: location.trim(),
           contact: contact.trim(),
-          publishNow: !scheduledAt,
-          scheduledAt,
-        };
-        if (destIds.length) {
-          const r = await createListings.mutateAsync({
-            ...base,
-            connectionIds: destIds,
-            destinationType: "page",
-          });
-          total += r.length;
-          failed += r.filter((l) => l.status === "failed").length;
-        }
-        if (mktIds.length) {
-          const r = await createListings.mutateAsync({
-            ...base,
-            connectionIds: mktIds,
-            destinationType: "marketplace_catalog",
-          });
-          total += r.length;
-          failed += r.filter((l) => l.status === "failed").length;
-        }
-        if (groupIds.length) {
-          // Groups are assisted-manual → drafts; paste happens in Listings.
-          const r = await createListings.mutateAsync({ ...base, groupTargetIds: groupIds });
-          total += r.length;
-        }
+          publishNow: true,
+          connectionIds: destIds,
+          destinationType: "page",
+        });
+        total += r.length;
+        failed += r.filter((l) => l.status === "failed").length;
       }
-      if (scheduledAt) toast.success(`Scheduled ${total} listing(s)`);
-      else if (failed) toast.warning(`Published ${total} listing(s), ${failed} failed — check Listings`);
-      else
-        toast.success(
-          `Created ${total} listing(s)${groupIds.length ? " — group drafts await pasting in Listings" : ""}`,
-        );
+      if (failed) toast.warning(`Published ${total} post(s), ${failed} failed — check Listings`);
+      else toast.success(`Published ${total} post(s) to Facebook`);
       setSelectedMap({});
       setDestIds([]);
-      setMktIds([]);
-      setGroupIds([]);
       onPublished();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not publish");
@@ -604,95 +559,30 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
             )}
 
             <div>
-              <Label>3 · Destinations</Label>
-              <div className="mt-1.5 space-y-2">
+              <Label>3 · Facebook Page</Label>
+              <div className="mt-1.5">
                 {connections.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No connected Pages — add one in the <strong>Destinations</strong> tab.
+                    No connected Page — connect one in the <strong>Page</strong> tab.
                   </p>
                 ) : (
-                  <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1">
-                      Pages (organic post)
-                    </div>
-                    <div className="space-y-1.5">
-                      {connections.map((c) => (
-                        <label
-                          key={c.id}
-                          className="flex items-center gap-2 text-sm cursor-pointer"
-                        >
-                          <Checkbox
-                            checked={destIds.includes(c.id)}
-                            onCheckedChange={() => toggleDest(c.id)}
-                          />
-                          <Facebook className="h-3.5 w-3.5 text-blue-600" /> {c.pageName}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {connections.some((c) => c.catalogId) && (
-                  <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1">
-                      Marketplace catalog · used vehicles, needs public image URLs
-                    </div>
-                    <div className="space-y-1.5">
-                      {connections
-                        .filter((c) => c.catalogId)
-                        .map((c) => (
-                          <label
-                            key={c.id}
-                            className="flex items-center gap-2 text-sm cursor-pointer"
-                          >
-                            <Checkbox
-                              checked={mktIds.includes(c.id)}
-                              onCheckedChange={() => toggleMkt(c.id)}
-                            />
-                            <Store className="h-3.5 w-3.5 text-emerald-600" /> {c.pageName}
-                          </label>
-                        ))}
-                    </div>
-                  </div>
-                )}
-                {groupTargets.length > 0 && (
-                  <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1">
-                      Groups · paste manually (no auto-post)
-                    </div>
-                    <div className="space-y-1.5">
-                      {groupTargets.map((g) => (
-                        <label
-                          key={g.id}
-                          className="flex items-center gap-2 text-sm cursor-pointer"
-                        >
-                          <Checkbox
-                            checked={groupIds.includes(g.id)}
-                            onCheckedChange={() => toggleGroup(g.id)}
-                          />
-                          <Store className="h-3.5 w-3.5 text-slate-500" /> {g.name}
-                          {g.category ? (
-                            <span className="text-xs text-muted-foreground">· {g.category}</span>
-                          ) : null}
-                        </label>
-                      ))}
-                    </div>
+                  <div className="space-y-1.5">
+                    {connections.map((c) => (
+                      <label
+                        key={c.id}
+                        className="flex items-center gap-2 text-sm cursor-pointer"
+                      >
+                        <Checkbox
+                          checked={destIds.includes(c.id)}
+                          onCheckedChange={() => toggleDest(c.id)}
+                        />
+                        <Facebook className="h-3.5 w-3.5 text-blue-600" /> {c.pageName}
+                      </label>
+                    ))}
                   </div>
                 )}
               </div>
             </div>
-
-            {/* schedule */}
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <Checkbox checked={scheduleOn} onCheckedChange={(v) => setScheduleOn(!!v)} />
-              <CalendarClock className="h-3.5 w-3.5" /> Schedule for later
-            </label>
-            {scheduleOn && (
-              <Input
-                type="datetime-local"
-                value={scheduleAt}
-                onChange={(e) => setScheduleAt(e.target.value)}
-              />
-            )}
 
             {/* saved-template chips */}
             {templates.length > 0 && (
@@ -717,9 +607,7 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
 
             <Button
               onClick={publish}
-              disabled={
-                createListings.isPending || (!destIds.length && !mktIds.length && !groupIds.length)
-              }
+              disabled={createListings.isPending || !destIds.length}
               className="w-full"
             >
               {createListings.isPending ? (
@@ -727,7 +615,7 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
               ) : (
                 <Send className="h-4 w-4 mr-2" />
               )}
-              {scheduleOn ? "Schedule" : "Publish now"} · {selected.length} vehicle
+              Publish now · {selected.length} vehicle
               {selected.length === 1 ? "" : "s"}
             </Button>
           </div>
@@ -1421,7 +1309,6 @@ function DestinationsTab() {
               <th>Status</th>
               <th>Permissions</th>
               <th>Connected</th>
-              <th>Marketplace catalog</th>
               <th className="text-right">Actions</th>
             </tr>
           </thead>
@@ -1448,9 +1335,6 @@ function DestinationsTab() {
                 <td className="text-muted-foreground">
                   {new Date(c.connectedAt).toLocaleDateString()}
                 </td>
-                <td>
-                  <CatalogIdCell conn={c} />
-                </td>
                 <td className="text-right">
                   <Can module="Facebook Listings" action="delete">
                     <Button
@@ -1469,16 +1353,10 @@ function DestinationsTab() {
         </table>
       )}
       <p className="text-xs text-muted-foreground mt-3">
-        <span className="font-medium">Marketplace catalog:</span> set a Page's Meta Commerce Manager
-        product-catalog ID <em>and</em> a <span className="font-medium">System User access token</span> with{" "}
-        <code>catalog_management</code> (a Page token <em>cannot</em> write to a catalog — Graph returns code
-        100/33). This enables the <span className="font-medium">Marketplace (catalog)</span> destination on the
-        Publish tab; vehicles published there sync into the catalog via the Item API (used vehicles, public
-        photo URLs). Items appear on Facebook Marketplace once Meta approves the catalog for Marketplace
-        surfacing.
+        Connect the dealership's Facebook Page to publish inventory posts, read &amp; reply to
+        comments, and see analytics. The Page token is stored encrypted.
       </p>
       </div>
-      <GroupRegistry />
     </div>
   );
 }
