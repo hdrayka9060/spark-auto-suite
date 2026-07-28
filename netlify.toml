@@ -1,0 +1,20 @@
+# Netlify config for the SpinAuto admin app (Vite + React SPA).
+#
+# Before/at deploy, set this environment variable in the Netlify UI
+# (Site settings → Environment variables) — it points the app at the Render backend:
+#   VITE_API_BASE_URL = https://cdms-backend.onrender.com/api/v1
+# (A Netlify env var overrides any committed .env, so localhost stays for dev.)
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# SPA fallback: every non-file route serves index.html so client-side routing
+# (React Router) works on deep-links and refresh instead of 404-ing.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import {
-  ChevronLeft, ChevronRight, Bell, Search, User, LogOut, Car,
+  ChevronLeft, ChevronRight, Bell, Search, User, LogOut,
 } from "lucide-react";
 import { navItems } from "@/config/nav";
 import { useUnreadCount } from "@/hooks/api/use-messaging";
@@ -48,9 +48,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         className={`${collapsed ? "w-[68px]" : "w-[240px]"} flex flex-col transition-all duration-200 shrink-0`}
         style={{ background: "hsl(222 47% 11%)" }}
       >
-        <div className="flex items-center gap-2 h-16 px-4 border-b" style={{ borderColor: "hsl(222 30% 20%)" }}>
-          <Car className="h-7 w-7 text-amber-400 shrink-0" />
-          {!collapsed && <span className="font-display font-bold text-lg text-white tracking-tight">AutoDealer</span>}
+        <div className="flex items-center gap-2 h-16 px-3 border-b" style={{ borderColor: "hsl(222 30% 20%)" }}>
+          <img
+            src="/assets/logo.png"
+            alt="Spin Auto"
+            className="h-10 w-auto max-w-full object-contain shrink-0"
+          />
+          {!collapsed && (
+            <span className="font-display font-bold text-lg text-white tracking-tight">SpinAuto</span>
+          )}
         </div>
 
         <nav
@@ -86,6 +92,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+
+        {!collapsed && (
+          <div
+            className="px-4 py-2 text-[10px] leading-tight text-slate-500 border-t"
+            style={{ borderColor: "hsl(222 30% 20%)" }}
+          >
+            Developed by Dash Technologies
+          </div>
+        )}
 
         <button
           onClick={() => setCollapsed(!collapsed)}

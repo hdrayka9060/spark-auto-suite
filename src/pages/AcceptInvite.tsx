@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Car, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -129,8 +129,8 @@ export default function AcceptInvite() {
       <div className="min-h-screen flex items-center justify-center p-6 bg-background">
         <div className="w-full max-w-md space-y-6 text-center">
           <div className="flex items-center gap-2 justify-center">
-            <Car className="h-7 w-7 text-amber-500" />
-            <span className="font-display font-bold text-lg">AutoDealer</span>
+            <img src="/assets/logo.png" alt="Spin Auto" className="h-9 w-auto object-contain" />
+            <span className="font-display font-bold text-lg">SpinAuto</span>
           </div>
           <div className="space-y-2">
             <h2 className="text-2xl font-bold tracking-tight">Invite unavailable</h2>
@@ -157,8 +157,8 @@ export default function AcceptInvite() {
         style={{ background: "hsl(222 47% 11%)" }}
       >
         <div className="flex items-center gap-2">
-          <Car className="h-8 w-8 text-amber-400" />
-          <span className="font-display font-bold text-xl tracking-tight">AutoDealer</span>
+          <img src="/assets/logo.png" alt="Spin Auto" className="h-10 w-auto object-contain" />
+          <span className="font-display font-bold text-xl tracking-tight">SpinAuto</span>
         </div>
         <div className="relative z-10 space-y-4">
           <h1 className="font-display text-5xl font-bold leading-tight">
@@ -168,7 +168,7 @@ export default function AcceptInvite() {
             Set your password to activate your account and access the dashboard.
           </p>
         </div>
-        <p className="text-xs text-slate-500 relative z-10">© 2026 AutoDealer CDMS</p>
+        <p className="text-xs text-slate-500 relative z-10">© 2026 SpinAuto CDMS</p>
         <div className="absolute -right-40 -bottom-40 w-[500px] h-[500px] rounded-full bg-amber-400/10 blur-3xl" />
         <div className="absolute -left-20 top-20 w-[300px] h-[300px] rounded-full bg-primary/20 blur-3xl" />
       </div>
@@ -177,8 +177,8 @@ export default function AcceptInvite() {
       <div className="flex-1 flex items-center justify-center p-6 bg-background">
         <div className="w-full max-w-md space-y-6">
           <div className="lg:hidden flex items-center gap-2 justify-center">
-            <Car className="h-7 w-7 text-amber-500" />
-            <span className="font-display font-bold text-lg">AutoDealer</span>
+            <img src="/assets/logo.png" alt="Spin Auto" className="h-9 w-auto object-contain" />
+            <span className="font-display font-bold text-lg">SpinAuto</span>
           </div>
           <div className="space-y-2">
             <h2 className="text-3xl font-bold tracking-tight">
