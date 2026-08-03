@@ -8,22 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
-const PASSWORD_RULE = /((?=.*\d)|(?=.*\W+))(?![.\n])(?=.*[A-Z])(?=.*[a-z]).*$/;
-
-function validatePassword(pw: string): string | null {
-  if (pw.length < 8) return "Password must be at least 8 characters";
-  if (!PASSWORD_RULE.test(pw))
-    return "Password must include uppercase, lowercase, and a number or symbol";
-  return null;
-}
-
 export default function Auth() {
   const navigate = useNavigate();
-  const { state, login, register } = useAuth();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [dealershipName, setDealershipName] = useState("");
+  const { state, login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -38,29 +25,10 @@ export default function Auth() {
     e.preventDefault();
     if (submitting) return;
 
-    if (mode === "signup") {
-      const pwError = validatePassword(password);
-      if (pwError) {
-        toast.error(pwError);
-        return;
-      }
-    }
-
     setSubmitting(true);
     try {
-      if (mode === "signup") {
-        await register({
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          email: email.trim(),
-          password,
-          dealershipName: dealershipName.trim() || undefined,
-        });
-        toast.success("Account created — welcome!");
-      } else {
-        await login(email.trim(), password);
-        toast.success("Welcome back!");
-      }
+      await login(email.trim(), password);
+      toast.success("Welcome back!");
       // The effect above handles navigation once state flips.
     } catch (err) {
       const message =
@@ -112,52 +80,13 @@ export default function Auth() {
             <span className="font-display font-bold text-lg">SpinAuto</span>
           </div>
           <div className="space-y-2">
-            <h2 className="text-3xl font-bold tracking-tight">
-              {mode === "signin" ? "Welcome back" : "Create your account"}
-            </h2>
+            <h2 className="text-3xl font-bold tracking-tight">Welcome back</h2>
             <p className="text-muted-foreground text-sm">
-              {mode === "signin"
-                ? "Sign in to access your dealership dashboard."
-                : "Get started managing your dealership today."}
+              Sign in to access your dealership dashboard.
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === "signup" && (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="firstName">First name</Label>
-                    <Input
-                      id="firstName"
-                      value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
-                      required
-                      autoComplete="given-name"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lastName">Last name</Label>
-                    <Input
-                      id="lastName"
-                      value={lastName}
-                      onChange={(e) => setLastName(e.target.value)}
-                      required
-                      autoComplete="family-name"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="dealershipName">Dealership name (optional)</Label>
-                  <Input
-                    id="dealershipName"
-                    value={dealershipName}
-                    onChange={(e) => setDealershipName(e.target.value)}
-                    autoComplete="organization"
-                  />
-                </div>
-              </>
-            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -177,31 +106,14 @@ export default function Auth() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength={mode === "signup" ? 8 : undefined}
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                autoComplete="current-password"
               />
-              {mode === "signup" && (
-                <p className="text-xs text-muted-foreground">
-                  At least 8 characters with uppercase, lowercase, and a number or symbol.
-                </p>
-              )}
             </div>
             <Button type="submit" className="w-full h-11" disabled={submitting}>
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {mode === "signin" ? "Sign in" : "Create account"}
+              Sign in
             </Button>
           </form>
-
-          <p className="text-sm text-center text-muted-foreground">
-            {mode === "signin" ? "Don't have an account?" : "Already have an account?"}{" "}
-            <button
-              type="button"
-              onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-              className="text-primary font-medium hover:underline"
-            >
-              {mode === "signin" ? "Sign up" : "Sign in"}
-            </button>
-          </p>
         </div>
       </div>
     </div>
