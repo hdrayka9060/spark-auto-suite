@@ -94,10 +94,12 @@
 @layer components {
   .stat-card {
     @apply bg-card rounded-xl p-5 border border-border shadow-sm hover:shadow-md transition-shadow;
+    @apply max-md:p-4;
   }
 
   .module-header {
     @apply flex items-center justify-between mb-6;
+    @apply max-md:flex-col max-md:items-start max-md:gap-3;
   }
 
   .module-title {
