@@ -734,7 +734,7 @@ export default function Accounting() {
             <div className="flex items-center justify-center text-muted-foreground gap-2 py-8 text-sm">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading…
             </div>
-          ) : expenseList.length === 0 && reconItems.length === 0 ? (
+          ) : expenseList.length === 0 && reconTotal === 0 && costOfVehicles === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No expenses logged yet.</p>
           ) : expenseView === "breakdown" ? (
             <div className="space-y-3">
