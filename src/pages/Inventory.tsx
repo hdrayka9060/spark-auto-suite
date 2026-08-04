@@ -152,7 +152,7 @@ export default function Inventory() {
     title: "", company: "", model: "", trim: "", year: "", engine: "",
     fuel: "", transmission: "", bodyType: "", drivetrain: "", engineSize: "",
     interiorColor: "", doors: "", plant: "", country: "",
-    km: "", price: "", discount: "", owners: "", color: "", description: "",
+    km: "", price: "", costPrice: "", discount: "", owners: "", color: "", description: "",
     hosting: "Self" as "Self" | "Platform", seller: "",
   });
   // Engine is a dropdown of common configs; "Other" reveals a free-text input so
@@ -205,7 +205,7 @@ export default function Inventory() {
       title: "", company: "", model: "", trim: "", year: "", engine: "",
       fuel: "", transmission: "", bodyType: "", drivetrain: "", engineSize: "",
       interiorColor: "", doors: "", plant: "", country: "",
-      km: "", price: "", discount: "", owners: "", color: "", description: "",
+      km: "", price: "", costPrice: "", discount: "", owners: "", color: "", description: "",
       hosting: "Self", seller: "",
     });
     setPendingImages([]);
@@ -233,6 +233,7 @@ export default function Inventory() {
     const yearNum = parseInt(form.year, 10);
     const priceNum = parseFloat(form.price);
     const kmNum = form.km ? parseInt(form.km, 10) : undefined;
+    const costPriceNum = form.costPrice ? parseFloat(form.costPrice) : undefined;
     const discountNum = form.discount ? parseFloat(form.discount) : undefined;
     const ownersNum = form.owners ? parseInt(form.owners, 10) : undefined;
     const doorsNum = form.doors ? parseInt(form.doors, 10) : undefined;
@@ -244,8 +245,8 @@ export default function Inventory() {
       toast({ title: "Invalid price", description: "Price can't be negative.", variant: "destructive" });
       return;
     }
-    if ((kmNum !== undefined && kmNum < 0) || (discountNum !== undefined && discountNum < 0) || (doorsNum !== undefined && doorsNum < 0)) {
-      toast({ title: "Invalid value", description: "KM, discount and doors can't be negative.", variant: "destructive" });
+    if ((kmNum !== undefined && kmNum < 0) || (costPriceNum !== undefined && costPriceNum < 0) || (discountNum !== undefined && discountNum < 0) || (doorsNum !== undefined && doorsNum < 0)) {
+      toast({ title: "Invalid value", description: "KM, cost price, discount and doors can't be negative.", variant: "destructive" });
       return;
     }
     if (ownersNum !== undefined && ownersNum < 1) {
@@ -265,6 +266,7 @@ export default function Inventory() {
         year: yearNum,
         km: kmNum,
         price: priceNum,
+        costPrice: costPriceNum,
         discount: discountNum,
         owners: ownersNum,
         fuel: form.fuel || undefined,
@@ -614,6 +616,10 @@ export default function Inventory() {
               <div>
                 <label className="text-[11px] text-muted-foreground">Price ($) *</label>
                 <input value={form.price} onChange={(e) => setNum("price", e.target.value)} placeholder="Price ($)" type="number" min={0} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+              </div>
+              <div>
+                <label className="text-[11px] text-muted-foreground">Cost Price ($)</label>
+                <input value={form.costPrice} onChange={(e) => setNum("costPrice", e.target.value)} placeholder="Cost Price ($)" type="number" min={0} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background" />
               </div>
               <div>
                 <label className="text-[11px] text-muted-foreground">Discount ($)</label>

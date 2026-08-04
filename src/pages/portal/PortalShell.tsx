@@ -29,7 +29,7 @@ export default function PortalShell({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <div className="portal-v2 min-h-screen bg-[#222222] text-[#e8e8e8]">
+    <div className="portal-v2 h-screen overflow-y-auto bg-[#222222] text-[#e8e8e8]">
       <style>{SCOPED_CSS}</style>
 
       <header className="sticky top-0 z-30 border-b border-[#3a3a3a] bg-black/95 backdrop-blur-md">
