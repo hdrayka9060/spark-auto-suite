@@ -351,6 +351,28 @@ export function useDeleteVehicleImage(id: string) {
 }
 
 /**
+ * Persist a new order for a vehicle's photos[]. Pass the FULL photos list in the
+ * desired order (a permutation of the current set). Array order is the display
+ * order used by the admin gallery, the public storefront, the buyer portal, and
+ * Facebook, so reordering here reflects everywhere.
+ */
+export function useReorderVehicleImages(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (photos: string[]): Promise<Vehicle> => {
+      const updated = await api<ServerVehicle>(`/inventory/${id}/images/order`, {
+        method: "PATCH",
+        body: { photos },
+      });
+      return toClientVehicle(updated);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+    },
+  });
+}
+
+/**
  * Count calendar events of type `test_drive` linked to this vehicle.
  * Used to populate the Engagement panel's Test Drives counter on VehicleDetail.
  *

@@ -4,10 +4,10 @@ import {
   ArrowLeft, Edit, Trash2, ChevronLeft, ChevronRight,
   Eye, MessageSquare, Car, Calendar, Gauge, Fuel, Settings as SettingsIcon,
   Palette, Hash, Users, History, Activity, Loader2, AlertCircle, Save, X, Upload,
-  Receipt, Plus,
+  Receipt, Plus, GripVertical,
 } from "lucide-react";
 import {
-  useDeleteVehicle, useDeleteVehicleImage, useUpdateVehicle, useUploadVehicleImages,
+  useDeleteVehicle, useDeleteVehicleImage, useReorderVehicleImages, useUpdateVehicle, useUploadVehicleImages,
   useVehicle, useVehicleActivity,
   useAddVehicleSpend, useUpdateVehicleSpend, useDeleteVehicleSpend,
 } from "@/hooks/api/use-vehicles";
@@ -51,6 +51,7 @@ export default function VehicleDetail() {
   const deleteVehicle = useDeleteVehicle();
   const uploadImages = useUploadVehicleImages(id);
   const deleteImage = useDeleteVehicleImage(id);
+  const reorderImages = useReorderVehicleImages(id);
   const activityQuery = useVehicleActivity(id);
   const addSpend = useAddVehicleSpend(id);
   const updateSpendMut = useUpdateVehicleSpend(id);
@@ -78,6 +79,8 @@ export default function VehicleDetail() {
     date: "",
   });
   const [imageIdx, setImageIdx] = useState(0);
+  // Index of the thumbnail currently being dragged (for photo reordering).
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<{
     title: string;
@@ -311,6 +314,26 @@ export default function VehicleDetail() {
     }
   };
 
+  // Drag-to-reorder the gallery. `from`/`to` are indices into vehicle.gallery
+  // (which, when >1 photo, is exactly the server photos[] in order). The new
+  // order is persisted; photos[0] is the cover shown on the storefront/cards.
+  const handleReorder = async (from: number, to: number) => {
+    if (from === to || from == null || to == null) return;
+    const next = [...vehicle.gallery];
+    if (from < 0 || to < 0 || from >= next.length || to >= next.length) return;
+    // Only reorder when every item is a real photo path (never the emoji fallback).
+    if (!next.every((g) => g.includes("/"))) return;
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setImageIdx(to); // keep the large preview on the image the user just moved
+    try {
+      await reorderImages.mutateAsync(next);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Could not save the new image order";
+      toast({ title: "Reorder failed", description: msg, variant: "destructive" });
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
@@ -444,32 +467,56 @@ export default function VehicleDetail() {
             />
           </div>
           {vehicle.gallery.length > 1 && (
-            <div className="flex gap-2 p-3 border-t overflow-x-auto">
-              {vehicle.gallery.map((g, i) => {
-                const isPath = g.includes("/");
-                return (
-                  <div key={i} className="relative group shrink-0">
-                    <button
-                      onClick={() => setImageIdx(i)}
-                      className={`h-16 w-20 rounded-lg border flex items-center justify-center text-3xl overflow-hidden transition-colors ${
-                        i === imageIdx ? "border-primary ring-2 ring-primary/20 bg-muted" : "hover:bg-muted"
-                      }`}
+            <div className="border-t">
+              {canEditInventory && (
+                <p className="px-3 pt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <GripVertical className="h-3 w-3" />
+                  Drag to reorder — the first image is the cover shown on the storefront.
+                </p>
+              )}
+              <div className="flex gap-2 p-3 overflow-x-auto">
+                {vehicle.gallery.map((g, i) => {
+                  const isPath = g.includes("/");
+                  const draggable = isPath && canEditInventory;
+                  return (
+                    <div
+                      key={i}
+                      draggable={draggable}
+                      onDragStart={draggable ? () => setDragIdx(i) : undefined}
+                      onDragOver={(e) => { if (dragIdx !== null) e.preventDefault(); }}
+                      onDrop={(e) => { e.preventDefault(); if (dragIdx !== null) handleReorder(dragIdx, i); setDragIdx(null); }}
+                      onDragEnd={() => setDragIdx(null)}
+                      className={`relative group shrink-0 rounded-lg transition-opacity ${draggable ? "cursor-move" : ""} ${
+                        dragIdx === i ? "opacity-40" : ""
+                      } ${dragIdx !== null && dragIdx !== i ? "ring-1 ring-dashed ring-primary/40" : ""}`}
                     >
-                      {isPath ? <img src={fileUrl(g)} alt="" className="w-full h-full object-cover" /> : g}
-                    </button>
-                    {isPath && canEditInventory && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleDeletePhoto(g); }}
-                        disabled={deleteImage.isPending}
-                        title="Remove this photo"
-                        className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground h-5 w-5 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-60"
+                        onClick={() => setImageIdx(i)}
+                        className={`h-16 w-20 rounded-lg border flex items-center justify-center text-3xl overflow-hidden transition-colors ${
+                          i === imageIdx ? "border-primary ring-2 ring-primary/20 bg-muted" : "hover:bg-muted"
+                        }`}
                       >
-                        {deleteImage.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "×"}
+                        {isPath ? <img src={fileUrl(g)} alt="" className="w-full h-full object-cover pointer-events-none" /> : g}
                       </button>
-                    )}
-                  </div>
-                );
-              })}
+                      {i === 0 && isPath && (
+                        <span className="absolute bottom-1 left-1 bg-card/90 border rounded px-1 text-[9px] font-medium leading-tight pointer-events-none">
+                          Cover
+                        </span>
+                      )}
+                      {isPath && canEditInventory && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeletePhoto(g); }}
+                          disabled={deleteImage.isPending}
+                          title="Remove this photo"
+                          className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground h-5 w-5 rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-60"
+                        >
+                          {deleteImage.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "×"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
