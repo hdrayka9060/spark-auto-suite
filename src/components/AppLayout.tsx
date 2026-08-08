@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -17,6 +17,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  // The page content scrolls inside <main>, not the window, and <main> mounts
+  // once (persistent layout route) so its scroll offset would otherwise carry
+  // over to the next page. Reset it to the top on every route change — including
+  // browser Back/Forward — so each page opens at the top with no visible scroll.
+  //   • `scrollRestoration = "manual"` stops the browser restoring the previous
+  //     offset on Back/Forward before we reset it (avoids the flash/jump).
+  //   • `behavior: "instant"` forces a hard jump; "auto" would defer to any CSS
+  //     `scroll-behavior: smooth` and animate the reset.
+  // Hash navigations are left alone so in-page anchor links still work.
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if ("scrollRestoration" in window.history) {
+      window.history.scrollRestoration = "manual";
+    }
+  }, []);
+  useEffect(() => {
+    if (location.hash) return;
+    mainRef.current?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [location.pathname, location.hash]);
   const { state, logout, hasPermission } = useAuth();
   // Unread chat badge on the Communication nav item (only fetched if the user
   // can see Communication, so non-members don't 403 in a loop).
@@ -130,7 +149,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-6 max-md:p-4">
+        <main ref={mainRef} className="flex-1 overflow-y-auto p-6 max-md:p-4">
           {children}
         </main>
       </div>
