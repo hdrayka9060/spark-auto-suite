@@ -258,8 +258,9 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
 
   const [search, setSearch] = useState("");
   const vehiclesQuery = useVehicles({ search: search || undefined, limit: 24 });
-  // Hide sold cars from the publish picker — you can't list a vehicle that's sold.
-  const vehicles = (vehiclesQuery.data?.data ?? []).filter((v) => v.status !== "Sold");
+  // Show ALL vehicles in the publish picker, including sold ones (dealers may want
+  // to keep a sold unit visible or mark it sold on the Page).
+  const vehicles = vehiclesQuery.data?.data ?? [];
 
   // Persist selection across searches via an id→Vehicle map.
   const [selectedMap, setSelectedMap] = useState<Record<string, Vehicle>>({});
