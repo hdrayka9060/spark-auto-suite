@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import {
-  AlertCircle, ArrowLeft, CalendarDays, Copy, Edit, Loader2, Mail, MapPin, Phone, Plus,
+  AlertCircle, ArrowLeft, CalendarDays, Copy, Edit, Loader2, Mail, MapPin, Phone, Plus, UserPlus,
   Save, Trash2, Video, X,
 } from "lucide-react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import {
   CloseLeadInput, LeadLogInput, useAppendLeadLog, useBookLeadTestDrive, useCloseLead,
-  useDeleteLead, useDeleteLeadLog, useLead, useUpdateLead, useUpdateLeadLog,
+  useDeleteLead, useDeleteLeadLog, useLead, useUpdateLead, useUpdateLeadLog, useAssignLeadBuyer,
 } from "@/hooks/api/use-leads";
+import { useBuyers } from "@/hooks/api/use-buyers";
 import { useCreateCalendarEvent } from "@/hooks/api/use-calendar";
 import { useStaff } from "@/hooks/api/use-staff";
 import { useVehicle, useVehicles } from "@/hooks/api/use-vehicles";
@@ -81,6 +82,40 @@ export default function LeadDetail() {
   const canEdit = useCan("Leads & Sales", "edit");
   const canDelete = useCan("Leads & Sales", "delete");
   const confirm = useConfirm();
+
+  // Assign-buyer (for walk-in leads with no buyer yet).
+  const assignBuyer = useAssignLeadBuyer(id ?? "");
+  const buyersQuery = useBuyers();
+  const ASSIGN_NONE = "__none__";
+  const [showAssignBuyer, setShowAssignBuyer] = useState(false);
+  const [assignForm, setAssignForm] = useState({ linkedBuyerId: "", newBuyerName: "", newBuyerEmail: "", newBuyerPhone: "" });
+  const openAssignBuyer = () => {
+    setAssignForm({ linkedBuyerId: "", newBuyerName: "", newBuyerEmail: "", newBuyerPhone: "" });
+    setShowAssignBuyer(true);
+  };
+  const submitAssignBuyer = async () => {
+    const usingExisting = !!assignForm.linkedBuyerId;
+    if (!usingExisting && (!assignForm.newBuyerName.trim() || !assignForm.newBuyerEmail.trim() || !assignForm.newBuyerPhone.trim())) {
+      toast({ title: "Buyer details required", description: "Pick a buyer, or enter name, email and phone for a new one.", variant: "destructive" });
+      return;
+    }
+    try {
+      await assignBuyer.mutateAsync(
+        usingExisting
+          ? { buyerLeadId: assignForm.linkedBuyerId }
+          : {
+              newBuyerName: assignForm.newBuyerName.trim(),
+              newBuyerEmail: assignForm.newBuyerEmail.trim(),
+              newBuyerPhone: assignForm.newBuyerPhone.trim(),
+            },
+      );
+      toast({ title: "Buyer assigned" });
+      setShowAssignBuyer(false);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "Failed to assign buyer";
+      toast({ title: "Couldn't assign buyer", description: msg, variant: "destructive" });
+    }
+  };
 
   const [status, setStatus] = useState<ClientLeadStatus>("New");
   const [assigneeId, setAssigneeId] = useState<string>("");
@@ -481,13 +516,29 @@ export default function LeadDetail() {
         <div className="stat-card space-y-3">
           <h3 className="font-display font-semibold text-sm uppercase text-muted-foreground tracking-wide">Buyer</h3>
           <p className="font-medium">{lead.buyerName}</p>
-          <div className="text-sm space-y-1">
-            {lead.buyerEmail && <p className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-muted-foreground" /> {lead.buyerEmail}</p>}
-            {lead.buyerPhone && <p className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-muted-foreground" /> {lead.buyerPhone}</p>}
-          </div>
-          <button onClick={() => navigate(`/crm-buyers/${lead.buyerId}`)} className="w-full text-xs text-primary text-left hover:underline">
-            View buyer profile →
-          </button>
+          {lead.isWalkIn ? (
+            <>
+              <p className="text-xs text-muted-foreground">No buyer linked to this walk-in lead yet.</p>
+              {canEdit && (
+                <button
+                  onClick={openAssignBuyer}
+                  className="flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 hover:bg-muted"
+                >
+                  <UserPlus className="h-3.5 w-3.5" /> Assign buyer
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="text-sm space-y-1">
+                {lead.buyerEmail && <p className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-muted-foreground" /> {lead.buyerEmail}</p>}
+                {lead.buyerPhone && <p className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-muted-foreground" /> {lead.buyerPhone}</p>}
+              </div>
+              <button onClick={() => navigate(`/crm-buyers/${lead.buyerId}`)} className="w-full text-xs text-primary text-left hover:underline">
+                View buyer profile →
+              </button>
+            </>
+          )}
         </div>
 
         <div className="stat-card space-y-3">
@@ -1082,6 +1133,79 @@ export default function LeadDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Assign-buyer dialog (walk-in leads) */}
+      <Dialog open={showAssignBuyer} onOpenChange={setShowAssignBuyer}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign buyer</DialogTitle>
+            <DialogDescription>
+              Link a buyer to this walk-in lead. Pick an existing CRM buyer or create a new one.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] text-muted-foreground">Existing CRM buyer</label>
+              <Select
+                value={assignForm.linkedBuyerId || ASSIGN_NONE}
+                onValueChange={(v) => setAssignForm((f) => ({ ...f, linkedBuyerId: v === ASSIGN_NONE ? "" : v }))}
+              >
+                <SelectTrigger className="w-full"><SelectValue placeholder="New buyer (enter below)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ASSIGN_NONE}>New buyer (enter below)</SelectItem>
+                  {(buyersQuery.data?.data ?? []).map((b) => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}{b.email ? ` · ${b.email}` : ""}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {!assignForm.linkedBuyerId && (
+              <div className="grid md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] text-muted-foreground">Buyer name *</label>
+                  <input
+                    value={assignForm.newBuyerName}
+                    onChange={(e) => setAssignForm((f) => ({ ...f, newBuyerName: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-muted-foreground">Buyer email *</label>
+                  <input
+                    type="email"
+                    value={assignForm.newBuyerEmail}
+                    onChange={(e) => setAssignForm((f) => ({ ...f, newBuyerEmail: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-[11px] text-muted-foreground">Buyer phone *</label>
+                  <input
+                    value={assignForm.newBuyerPhone}
+                    inputMode="tel"
+                    onChange={(e) => setAssignForm((f) => ({ ...f, newBuyerPhone: e.target.value.replace(/[^\d+\- ]/g, "") }))}
+                    placeholder="e.g. +1 555-123-4567"
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <button onClick={() => setShowAssignBuyer(false)} className="px-4 py-2 rounded-lg text-sm bg-muted text-foreground hover:bg-muted/80">
+              Cancel
+            </button>
+            <button
+              onClick={submitAssignBuyer}
+              disabled={assignBuyer.isPending}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-60"
+            >
+              {assignBuyer.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+              Assign
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

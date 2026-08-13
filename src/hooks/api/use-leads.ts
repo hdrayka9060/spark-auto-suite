@@ -101,6 +101,39 @@ export function useUpdateLead(id: string) {
   });
 }
 
+export interface AssignBuyerInput {
+  /** Existing CRM buyer to link. */
+  buyerLeadId?: string;
+  /** Or create a new buyer inline (deduped by email). */
+  newBuyerName?: string;
+  newBuyerEmail?: string;
+  newBuyerPhone?: string;
+}
+
+/**
+ * Assign a buyer to a walk-in (buyer-less) lead. If the lead is already closed
+ * (a completed walk-in sale) the backend also updates the Sale + buyer
+ * purchases, so invalidate accounting + vehicles (the sold-buyer line) too.
+ */
+export function useAssignLeadBuyer(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AssignBuyerInput): Promise<Lead> => {
+      const updated = await api<ServerLead>(`/leads/${id}/assign-buyer`, {
+        method: "POST",
+        body: input,
+      });
+      return toClientLead(updated);
+    },
+    onSuccess: (lead) => {
+      seedDetail(qc, id, lead);
+      qc.invalidateQueries({ queryKey: ["buyers"] });
+      qc.invalidateQueries({ queryKey: ["accounting"] });
+      qc.invalidateQueries({ queryKey: ["vehicles"] });
+    },
+  });
+}
+
 export function useDeleteLead() {
   const qc = useQueryClient();
   return useMutation({

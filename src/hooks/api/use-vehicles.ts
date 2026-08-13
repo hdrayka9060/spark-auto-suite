@@ -65,6 +65,28 @@ export function useVehicle(id: string | undefined) {
   });
 }
 
+// ── Sold-vehicle buyer (from the vehicle's closed lead) ────────────────────
+
+export interface SoldBuyer {
+  leadId: string;
+  isWalkIn: boolean;
+  buyerId: string | null;
+  buyerName: string;
+  buyerEmail: string | null;
+}
+
+/**
+ * The buyer behind a sold vehicle (or a "Walk-in" placeholder). Only fetched
+ * when the vehicle is sold. Returns null when there's no closed lead.
+ */
+export function useSoldBuyer(id: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: [...VEHICLES_KEY, "soldBuyer", id],
+    queryFn: () => api<SoldBuyer | null>(`/inventory/${id}/sold-buyer`),
+    enabled: Boolean(id) && enabled,
+  });
+}
+
 // ── Communication logs for the Activity tab ───────────────────────────────
 
 interface ServerCommunicationLog {
@@ -192,6 +214,48 @@ export function useUpdateVehicle(id: string) {
         qc.invalidateQueries({ queryKey: ["accounting"] });
         qc.invalidateQueries({ queryKey: ["buyers"] });
       }
+    },
+  });
+}
+
+export interface MarkSoldInput {
+  /** Optional — omit for a walk-in sale. */
+  buyerName?: string;
+  /** Optional. When provided (and no buyerLeadId) the backend creates/dedups a CRM buyer. */
+  buyerEmail?: string;
+  /** Required by the backend only when creating a new CRM buyer (email given, no buyerLeadId). */
+  buyerPhone?: string;
+  salePrice: number;
+  discount?: number;
+  amountPaid?: number;
+  saleDate: string; // YYYY-MM-DD
+  paymentMethod?: "cash" | "finance" | "bhph" | "trade_in";
+  paymentStatus?: "paid" | "partial" | "pending";
+  /** Optional CRM Buyer id — links the sale onto buyer.purchases[]. */
+  buyerLeadId?: string;
+  notes?: string;
+}
+
+/**
+ * Mark a vehicle as sold from Vehicle Details. Hits the Inventory:edit-gated
+ * endpoint that funnels into the unified sale flow, so it cascades exactly like
+ * Record Sale: writes the Sale (ledger/P&L), flips the vehicle → Sold, archives
+ * every other open lead for the vehicle, and pushes onto buyer.purchases[] when
+ * a CRM buyer is linked. Invalidate every affected cache so all pages reflect
+ * "Sold" instantly.
+ */
+export function useMarkVehicleSold(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: MarkSoldInput): Promise<void> => {
+      await api(`/inventory/${id}/mark-sold`, { method: "POST", body: input });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["buyers"] });
+      qc.invalidateQueries({ queryKey: ["accounting"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }

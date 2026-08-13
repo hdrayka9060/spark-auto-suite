@@ -17,7 +17,7 @@ export type ClientLeadChannel = "Call" | "Email" | "WhatsApp" | "SMS" | "Offline
 
 export interface ServerLead {
   _id: string;
-  buyer: { _id: string; buyerName: string; buyerEmail?: string; buyerPhone?: string } | string;
+  buyer: { _id: string; buyerName: string; buyerEmail?: string; buyerPhone?: string } | string | null;
   vehicle: { _id: string; title: string; vehicleNumber?: string; price?: number } | string;
   source: ServerLeadSource;
   status: ServerLeadStatus;
@@ -45,6 +45,8 @@ export interface Lead {
   buyerName: string;
   buyerEmail?: string;
   buyerPhone?: string;
+  /** True when the lead has no buyer (a walk-in). buyerName shows "Walk-in". */
+  isWalkIn: boolean;
   vehicleId: string;
   vehicleTitle: string;
   vehiclePrice?: number;
@@ -147,12 +149,14 @@ export function toClientLead(s: ServerLead): Lead {
   const vehicle = typeof s.vehicle === "string" ? null : s.vehicle;
   const assignee = typeof s.assignedTo === "string" || !s.assignedTo ? null : s.assignedTo;
 
+  const hasBuyer = !!refId(s.buyer);
   return {
     id: s._id,
     buyerId: refId(s.buyer),
-    buyerName: buyer?.buyerName ?? "—",
+    buyerName: buyer?.buyerName ?? (hasBuyer ? "—" : "Walk-in"),
     buyerEmail: buyer?.buyerEmail,
     buyerPhone: buyer?.buyerPhone,
+    isWalkIn: !hasBuyer,
     vehicleId: refId(s.vehicle),
     vehicleTitle: vehicle?.title ?? "—",
     vehiclePrice: vehicle?.price,
@@ -195,7 +199,12 @@ export function toClientLead(s: ServerLead): Lead {
 // ── Write direction ────────────────────────────────────────────────────────
 
 export interface LeadCreateInput {
-  buyerId: string;
+  /** Existing CRM buyer. Omit for a walk-in lead or when creating a new buyer. */
+  buyerId?: string;
+  /** Create a new CRM buyer inline (deduped by email). */
+  newBuyerName?: string;
+  newBuyerEmail?: string;
+  newBuyerPhone?: string;
   vehicleId: string;
   source: ClientLeadSource;
   status?: ClientLeadStatus;
@@ -211,7 +220,10 @@ export interface LeadCreateInput {
 
 export function toServerLeadCreatePayload(input: LeadCreateInput) {
   return {
-    buyer: input.buyerId,
+    buyer: input.buyerId || undefined,
+    newBuyerName: input.newBuyerName || undefined,
+    newBuyerEmail: input.newBuyerEmail || undefined,
+    newBuyerPhone: input.newBuyerPhone || undefined,
     vehicle: input.vehicleId,
     source: SOURCE_TO_SERVER[input.source],
     status: input.status ? STATUS_TO_SERVER[input.status] : undefined,

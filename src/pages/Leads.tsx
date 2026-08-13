@@ -62,9 +62,15 @@ export default function Leads() {
   });
   // Sale capture — only used when the initial status is Closed.
   const [sale, setSale] = useState<SaleDetails>(seedSaleDetails());
+  // Buyer entry mode: link an existing CRM buyer, create a new one inline, or a
+  // walk-in lead with no buyer.
+  const [buyerMode, setBuyerMode] = useState<"existing" | "new" | "walkin">("existing");
+  const [newBuyer, setNewBuyer] = useState({ name: "", email: "", phone: "" });
   const resetForm = () => {
     setForm({ buyerId: "", vehicleId: "", source: "Website", status: "New", assignedToId: selfId, notes: "" });
     setSale(seedSaleDetails());
+    setBuyerMode("existing");
+    setNewBuyer({ name: "", email: "", phone: "" });
   };
 
   // Leads are never unassigned — default the picker to the current user.
@@ -95,21 +101,32 @@ export default function Leads() {
   const open = (id: string) => navigate(`/leads/${id}`, { state: { search, statusFilter, view } });
 
   const handleSave = async () => {
-    if (!form.buyerId || !form.vehicleId) {
-      toast({ title: "Missing info", description: "Pick a buyer and a vehicle.", variant: "destructive" });
+    if (!form.vehicleId) {
+      toast({ title: "Missing info", description: "Pick a vehicle.", variant: "destructive" });
+      return;
+    }
+    if (buyerMode === "existing" && !form.buyerId) {
+      toast({ title: "Pick a buyer", description: "Choose an existing buyer, add a new one, or select Walk-in.", variant: "destructive" });
+      return;
+    }
+    if (buyerMode === "new" && (!newBuyer.name.trim() || !newBuyer.email.trim() || !newBuyer.phone.trim())) {
+      toast({ title: "New buyer details needed", description: "Enter the new buyer's name, email and phone.", variant: "destructive" });
       return;
     }
 
-    const existingLead = leads.find(
-      (l) => l.buyerId === form.buyerId && l.vehicleId === form.vehicleId && l.status !== "Archived"
-    );
-    if (existingLead) {
-      toast({
-        title: "Lead already exists",
-        description: `${existingLead.buyerName} already has an active lead for ${existingLead.vehicleTitle}. Archive the existing lead to create a new one.`,
-        variant: "destructive",
-      });
-      return;
+    // Client-side Guard 2 mirror — only relevant when linking an existing buyer.
+    if (buyerMode === "existing") {
+      const existingLead = leads.find(
+        (l) => l.buyerId === form.buyerId && l.vehicleId === form.vehicleId && l.status !== "Archived"
+      );
+      if (existingLead) {
+        toast({
+          title: "Lead already exists",
+          description: `${existingLead.buyerName} already has an active lead for ${existingLead.vehicleTitle}. Archive the existing lead to create a new one.`,
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     // Creating a lead directly as Closed captures the sale (same as closing an
@@ -125,7 +142,10 @@ export default function Leads() {
 
     try {
       const lead = await createLead.mutateAsync({
-        buyerId: form.buyerId,
+        buyerId: buyerMode === "existing" ? form.buyerId : undefined,
+        ...(buyerMode === "new"
+          ? { newBuyerName: newBuyer.name.trim(), newBuyerEmail: newBuyer.email.trim(), newBuyerPhone: newBuyer.phone.trim() }
+          : {}),
         vehicleId: form.vehicleId,
         source: form.source,
         status: form.status,
@@ -183,14 +203,37 @@ export default function Leads() {
         <div className="stat-card space-y-4">
           <h3 className="font-display font-semibold">New Lead</h3>
           <div className="grid md:grid-cols-3 gap-3">
-            <div>
-              <label className="text-xs text-muted-foreground">Buyer *</label>
-              <select value={form.buyerId} onChange={(e) => setForm({ ...form, buyerId: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background">
+            <div className="md:col-span-3">
+              <label className="text-xs text-muted-foreground">Buyer</label>
+              <select
+                value={buyerMode === "new" ? "__new__" : buyerMode === "walkin" ? "__walkin__" : (form.buyerId || "")}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "__new__") { setBuyerMode("new"); setForm({ ...form, buyerId: "" }); }
+                  else if (v === "__walkin__") { setBuyerMode("walkin"); setForm({ ...form, buyerId: "" }); }
+                  else { setBuyerMode("existing"); setForm({ ...form, buyerId: v }); }
+                }}
+                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-background"
+              >
                 <option value="">Pick a buyer…</option>
+                <option value="__new__">➕ New buyer (add to CRM)</option>
+                <option value="__walkin__">🚶 Walk-in (no buyer)</option>
                 {(buyersQuery.data?.data ?? []).map((b) => (
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
               </select>
+              {buyerMode === "new" && (
+                <>
+                  <div className="grid md:grid-cols-3 gap-3 mt-2">
+                    <input placeholder="New buyer name *" value={newBuyer.name} onChange={(e) => setNewBuyer((b) => ({ ...b, name: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+                    <input type="email" placeholder="New buyer email *" value={newBuyer.email} onChange={(e) => setNewBuyer((b) => ({ ...b, email: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+                    <input inputMode="tel" placeholder="Phone *" value={newBuyer.phone} onChange={(e) => setNewBuyer((b) => ({ ...b, phone: e.target.value.replace(/[^\d+\- ]/g, "") }))} className="w-full border rounded-lg px-3 py-2 text-sm bg-background" />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    A new buyer is added to CRM. A buyer with the same email is rejected — pick them from the list instead.
+                  </p>
+                </>
+              )}
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Vehicle *</label>

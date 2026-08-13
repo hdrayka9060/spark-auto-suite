@@ -4,13 +4,21 @@ import {
   ArrowLeft, Edit, Trash2, ChevronLeft, ChevronRight,
   Eye, MessageSquare, Car, Calendar, Gauge, Fuel, Settings as SettingsIcon,
   Palette, Hash, Users, History, Activity, Loader2, AlertCircle, Save, X, Upload,
-  Receipt, Plus, GripVertical,
+  Receipt, Plus, GripVertical, CheckCircle2, UserPlus,
 } from "lucide-react";
 import {
   useDeleteVehicle, useDeleteVehicleImage, useReorderVehicleImages, useUpdateVehicle, useUploadVehicleImages,
-  useVehicle, useVehicleActivity,
+  useVehicle, useVehicleActivity, useMarkVehicleSold, useSoldBuyer,
   useAddVehicleSpend, useUpdateVehicleSpend, useDeleteVehicleSpend,
 } from "@/hooks/api/use-vehicles";
+import { useBuyers } from "@/hooks/api/use-buyers";
+import { useAssignLeadBuyer } from "@/hooks/api/use-leads";
+import {
+  SaleDetailsFields, SaleDetails, seedSaleDetails, validateSaleDetails,
+} from "@/components/SaleDetailsFields";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { useCan } from "@/components/Can";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { ApiError, fileUrl } from "@/lib/api";
@@ -56,6 +64,12 @@ export default function VehicleDetail() {
   const addSpend = useAddVehicleSpend(id);
   const updateSpendMut = useUpdateVehicleSpend(id);
   const deleteSpend = useDeleteVehicleSpend(id);
+  const markSold = useMarkVehicleSold(id);
+  // Buyers for the optional "link a CRM buyer" picker in the Mark/Assign dialogs.
+  const buyersQuery = useBuyers();
+  // Who bought this vehicle (from its closed lead) — only when sold.
+  const soldBuyerQuery = useSoldBuyer(id, vehicleQuery.data?.status === "Sold");
+  const assignBuyer = useAssignLeadBuyer(soldBuyerQuery.data?.leadId ?? "");
   const canEditInventory = useCan("Inventory", "edit");
   const canDeleteInventory = useCan("Inventory", "delete");
   // Financial figures (cost price, reconditioning spends, sold price, gross
@@ -103,6 +117,15 @@ export default function VehicleDetail() {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Mark-as-Sold dialog state. `saleBuyer.linkedBuyerId` (a CRM buyer id) is
+  // optional — when set, the sale is pushed onto that buyer's purchases[].
+  const [showMarkSold, setShowMarkSold] = useState(false);
+  const [saleDetails, setSaleDetails] = useState<SaleDetails>(() => seedSaleDetails());
+  const [saleBuyer, setSaleBuyer] = useState({ buyerName: "", buyerEmail: "", buyerPhone: "", linkedBuyerId: "" });
+  // Assign-buyer-to-a-sold-walk-in dialog state.
+  const [showAssignBuyer, setShowAssignBuyer] = useState(false);
+  const [assignForm, setAssignForm] = useState({ linkedBuyerId: "", newBuyerName: "", newBuyerEmail: "", newBuyerPhone: "" });
+
   const vehicle = vehicleQuery.data;
 
   if (vehicleQuery.isLoading) {
@@ -144,6 +167,88 @@ export default function VehicleDetail() {
 
   const prevImage = () => setImageIdx((i) => (i - 1 + vehicle.gallery.length) % vehicle.gallery.length);
   const nextImage = () => setImageIdx((i) => (i + 1) % vehicle.gallery.length);
+
+  // ── Mark as Sold ──────────────────────────────────────────────────────────
+  const BUYER_NONE = "__none__"; // Radix Select can't use an empty-string value.
+  const openMarkSold = () => {
+    // Default the sold price to the vehicle's asking price (after discount).
+    setSaleDetails(seedSaleDetails(finalPrice > 0 ? finalPrice : vehicle.price));
+    setSaleBuyer({ buyerName: "", buyerEmail: "", buyerPhone: "", linkedBuyerId: "" });
+    setShowMarkSold(true);
+  };
+  const handleSaleBuyerPicked = (value: string) => {
+    if (value === BUYER_NONE) {
+      setSaleBuyer({ buyerName: "", buyerEmail: "", buyerPhone: "", linkedBuyerId: "" });
+      return;
+    }
+    const b = (buyersQuery.data?.data ?? []).find((x) => x.id === value);
+    if (!b) return;
+    setSaleBuyer({
+      buyerName: b.name !== "—" ? b.name : "",
+      buyerEmail: b.email ?? "",
+      buyerPhone: b.phone ?? "",
+      linkedBuyerId: value,
+    });
+  };
+  // A new CRM buyer is created only when an email is typed for someone not
+  // already linked from the picker. Buyer is otherwise fully optional.
+  const creatingNewBuyer = !saleBuyer.linkedBuyerId && !!saleBuyer.buyerEmail.trim();
+  const submitMarkSold = async () => {
+    // Phone is required only to add a NEW buyer to CRM.
+    if (creatingNewBuyer && !saleBuyer.buyerPhone.trim()) {
+      toast({ title: "Buyer phone required", description: "Enter a phone to add this buyer to CRM, or clear the email to record a walk-in sale.", variant: "destructive" });
+      return;
+    }
+    const err = validateSaleDetails(saleDetails);
+    if (err) { toast({ title: "Check the sale details", description: err, variant: "destructive" }); return; }
+    try {
+      await markSold.mutateAsync({
+        buyerName: saleBuyer.buyerName.trim() || undefined,
+        buyerEmail: saleBuyer.buyerEmail.trim() || undefined,
+        buyerPhone: saleBuyer.buyerPhone.trim() || undefined,
+        salePrice: saleDetails.soldAt,
+        amountPaid: saleDetails.amountPaid,
+        saleDate: saleDetails.saleDate,
+        paymentMethod: saleDetails.paymentMethod,
+        paymentStatus: saleDetails.paymentStatus,
+        buyerLeadId: saleBuyer.linkedBuyerId || undefined,
+      });
+      toast({ title: "Vehicle marked as sold", description: vehicle.title });
+      setShowMarkSold(false);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "Failed to mark as sold";
+      toast({ title: "Couldn't mark as sold", description: msg, variant: "destructive" });
+    }
+  };
+
+  // ── Assign a buyer to a sold walk-in ────────────────────────────────────────
+  const openAssignBuyer = () => {
+    setAssignForm({ linkedBuyerId: "", newBuyerName: "", newBuyerEmail: "", newBuyerPhone: "" });
+    setShowAssignBuyer(true);
+  };
+  const submitAssignBuyer = async () => {
+    const usingExisting = !!assignForm.linkedBuyerId;
+    if (!usingExisting && (!assignForm.newBuyerName.trim() || !assignForm.newBuyerEmail.trim() || !assignForm.newBuyerPhone.trim())) {
+      toast({ title: "Buyer details required", description: "Pick a buyer, or enter name, email and phone for a new one.", variant: "destructive" });
+      return;
+    }
+    try {
+      await assignBuyer.mutateAsync(
+        usingExisting
+          ? { buyerLeadId: assignForm.linkedBuyerId }
+          : {
+              newBuyerName: assignForm.newBuyerName.trim(),
+              newBuyerEmail: assignForm.newBuyerEmail.trim(),
+              newBuyerPhone: assignForm.newBuyerPhone.trim(),
+            },
+      );
+      toast({ title: "Buyer assigned" });
+      setShowAssignBuyer(false);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "Failed to assign buyer";
+      toast({ title: "Couldn't assign buyer", description: msg, variant: "destructive" });
+    }
+  };
 
   const startEdit = () => {
     setEditForm({
@@ -388,6 +493,14 @@ export default function VehicleDetail() {
                   <Edit className="h-4 w-4" /> Edit Vehicle
                 </button>
               )}
+              {canEditInventory && vehicle.status !== "Sold" && (
+                <button
+                  onClick={openMarkSold}
+                  className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90"
+                >
+                  <CheckCircle2 className="h-4 w-4" /> Mark as Sold
+                </button>
+              )}
               {canDeleteInventory && (
                 <button
                   onClick={handleDelete}
@@ -402,6 +515,168 @@ export default function VehicleDetail() {
           )}
         </div>
       </div>
+
+      {/* Mark-as-Sold dialog — funnels into the unified sale flow (ledger + vehicle→sold + sibling-lead archive + buyer.purchases). */}
+      <Dialog open={showMarkSold} onOpenChange={setShowMarkSold}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mark as Sold</DialogTitle>
+            <DialogDescription>
+              Records the sale of {vehicle.title}. This creates a sales-ledger entry in Accounting,
+              flips the vehicle to Sold, and archives any other open leads for this vehicle.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] text-muted-foreground">Link CRM buyer (optional)</label>
+              <Select value={saleBuyer.linkedBuyerId || BUYER_NONE} onValueChange={handleSaleBuyerPicked}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="New buyer (enter below)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={BUYER_NONE}>New buyer (enter below)</SelectItem>
+                  {(buyersQuery.data?.data ?? []).map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      {b.name}{b.email ? ` · ${b.email}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!saleBuyer.linkedBuyerId && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Buyer is optional. Enter an email to add a new buyer to CRM (rejected if the email already
+                  exists) — or leave blank to record a walk-in sale.
+                </p>
+              )}
+            </div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] text-muted-foreground">Buyer name</label>
+                <input
+                  value={saleBuyer.buyerName}
+                  onChange={(e) => setSaleBuyer((s) => ({ ...s, buyerName: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-muted-foreground">Buyer email</label>
+                <input
+                  type="email"
+                  value={saleBuyer.buyerEmail}
+                  onChange={(e) => setSaleBuyer((s) => ({ ...s, buyerEmail: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-muted-foreground">
+                  Buyer phone {creatingNewBuyer && "*"}
+                </label>
+                <input
+                  value={saleBuyer.buyerPhone}
+                  inputMode="tel"
+                  // Allow only digits, +, spaces and hyphens.
+                  onChange={(e) => setSaleBuyer((s) => ({ ...s, buyerPhone: e.target.value.replace(/[^\d+\- ]/g, "") }))}
+                  placeholder={creatingNewBuyer ? "Required to add buyer to CRM" : "e.g. +1 555-123-4567"}
+                  className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                />
+              </div>
+            </div>
+            <SaleDetailsFields value={saleDetails} onChange={setSaleDetails} />
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setShowMarkSold(false)}
+              className="px-4 py-2 rounded-lg text-sm bg-muted text-foreground hover:bg-muted/80"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submitMarkSold}
+              disabled={markSold.isPending}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-emerald-600 text-white hover:opacity-90 disabled:opacity-60"
+            >
+              {markSold.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              Confirm Sale
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign-buyer dialog (for a sold walk-in vehicle) */}
+      <Dialog open={showAssignBuyer} onOpenChange={setShowAssignBuyer}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign buyer</DialogTitle>
+            <DialogDescription>
+              Link a buyer to this walk-in sale of {vehicle.title}. Updates the sales ledger and the buyer's purchase history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[11px] text-muted-foreground">Existing CRM buyer</label>
+              <Select
+                value={assignForm.linkedBuyerId || BUYER_NONE}
+                onValueChange={(v) => setAssignForm((f) => ({ ...f, linkedBuyerId: v === BUYER_NONE ? "" : v }))}
+              >
+                <SelectTrigger className="w-full"><SelectValue placeholder="New buyer (enter below)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={BUYER_NONE}>New buyer (enter below)</SelectItem>
+                  {(buyersQuery.data?.data ?? []).map((b) => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}{b.email ? ` · ${b.email}` : ""}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {!assignForm.linkedBuyerId && (
+              <div className="grid md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] text-muted-foreground">Buyer name *</label>
+                  <input
+                    value={assignForm.newBuyerName}
+                    onChange={(e) => setAssignForm((f) => ({ ...f, newBuyerName: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-muted-foreground">Buyer email *</label>
+                  <input
+                    type="email"
+                    value={assignForm.newBuyerEmail}
+                    onChange={(e) => setAssignForm((f) => ({ ...f, newBuyerEmail: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-[11px] text-muted-foreground">Buyer phone *</label>
+                  <input
+                    value={assignForm.newBuyerPhone}
+                    inputMode="tel"
+                    onChange={(e) => setAssignForm((f) => ({ ...f, newBuyerPhone: e.target.value.replace(/[^\d+\- ]/g, "") }))}
+                    placeholder="e.g. +1 555-123-4567"
+                    className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setShowAssignBuyer(false)}
+              className="px-4 py-2 rounded-lg text-sm bg-muted text-foreground hover:bg-muted/80"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submitAssignBuyer}
+              disabled={assignBuyer.isPending}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-60"
+            >
+              {assignBuyer.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+              Assign
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Header card */}
       <div className="grid lg:grid-cols-5 gap-6">
@@ -558,6 +833,26 @@ export default function VehicleDetail() {
                 </>
               )}
             </div>
+
+            {/* Sold-to buyer line (from the vehicle's closed lead). "Walk-in"
+                when no buyer; assignable later for walk-ins. */}
+            {vehicle.status === "Sold" && (
+              <div className="mt-3 flex items-center gap-2 flex-wrap text-sm">
+                <span className="text-muted-foreground">Buyer:</span>
+                <span className="font-medium">{soldBuyerQuery.data?.buyerName ?? "—"}</span>
+                {soldBuyerQuery.data?.buyerEmail && (
+                  <span className="text-xs text-muted-foreground">· {soldBuyerQuery.data.buyerEmail}</span>
+                )}
+                {canEditInventory && soldBuyerQuery.data?.isWalkIn && soldBuyerQuery.data?.leadId && (
+                  <button
+                    onClick={openAssignBuyer}
+                    className="flex items-center gap-1 text-xs border rounded-lg px-2 py-1 hover:bg-muted"
+                  >
+                    <UserPlus className="h-3 w-3" /> Assign buyer
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Prices panel — Cost / Selling / (Sold) */}
