@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Plus, Upload, Search, Filter, Eye, Edit, Trash2, Image, LayoutGrid, List,
   Gauge, Calendar, Users as UsersIcon, Heart, ScanLine, Loader2, CheckCircle2,
-  AlertCircle, Sparkles,
+  AlertCircle, Sparkles, Camera,
 } from "lucide-react";
 import {
   useBulkUploadVehicles, useCreateVehicle, useDecodeVin, useDeleteVehicle, useVehicles,
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { useConfirm } from "@/components/ConfirmDialog";
+import { VinScannerDialog } from "@/components/VinScannerDialog";
 
 // Inventory cards/list tag each vehicle with the statuses of its (non-archived)
 // related leads instead of the vehicle's own status. Colors come from the mapper.
@@ -146,6 +147,7 @@ export default function Inventory() {
   const decodeVinMut = useDecodeVin();
   const [vinError, setVinError] = useState<string | null>(null);
   const [vinDecoded, setVinDecoded] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   // Bulk-upload result (created/decoded/errors) — shown in a dialog after import.
   const [bulkResult, setBulkResult] = useState<BulkUploadResult | null>(null);
   const [form, setForm] = useState({
@@ -169,8 +171,8 @@ export default function Inventory() {
 
   // Decode runs server-side (NHTSA vPIC via the backend) — same lookup the bulk
   // upload uses, with the field-mapping centralized in vehicle-mapper.
-  const decodeVin = async () => {
-    const v = vin.trim().toUpperCase();
+  const decodeVin = async (vinOverride?: string) => {
+    const v = (vinOverride ?? vin).trim().toUpperCase();
     setVinError(null);
     if (!VIN_RE.test(v)) {
       setVinError("VIN must be 17 characters (letters & digits, no I/O/Q).");
@@ -196,6 +198,22 @@ export default function Inventory() {
       setVinError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to decode VIN");
       setVinDecoded(false);
     }
+  };
+
+  // A scanned VIN fills the field and auto-decodes. `verified` reflects the
+  // check digit; an unverified read still decodes (NHTSA is the authority) but
+  // nudges the user to confirm.
+  const handleVinScanned = (scanned: string, verified: boolean) => {
+    setVin(scanned.toUpperCase());
+    setVinError(null);
+    setVinDecoded(false);
+    if (!verified) {
+      toast({
+        title: "VIN scanned",
+        description: "Couldn't verify the check digit — please double-check the VIN.",
+      });
+    }
+    void decodeVin(scanned);
   };
 
   const resetForm = () => {
@@ -396,6 +414,12 @@ export default function Inventory() {
         </DialogContent>
       </Dialog>
 
+      <VinScannerDialog
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onDetected={handleVinScanned}
+      />
+
       <div className="module-header">
         <div>
           <h1 className="module-title">Inventory Management</h1>
@@ -458,7 +482,7 @@ export default function Inventory() {
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
               <ScanLine className="h-3.5 w-3.5" /> Quick Add by VIN
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <div className="relative flex-1">
                 <input
                   value={vin}
@@ -473,14 +497,25 @@ export default function Inventory() {
                   {vin.length}/17
                 </span>
               </div>
-              <button
-                onClick={decodeVin}
-                disabled={!isVinValid || decodeVinMut.isPending}
-                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                {decodeVinMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-                {decodeVinMut.isPending ? "Decoding…" : "Decode VIN"}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setScannerOpen(true)}
+                  title="Scan the VIN with your camera"
+                  className="flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-medium hover:bg-muted transition whitespace-nowrap"
+                >
+                  <Camera className="h-4 w-4" /> Scan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => decodeVin()}
+                  disabled={!isVinValid || decodeVinMut.isPending}
+                  className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition whitespace-nowrap"
+                >
+                  {decodeVinMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+                  {decodeVinMut.isPending ? "Decoding…" : "Decode VIN"}
+                </button>
+              </div>
             </div>
             {vinError && (
               <div className="flex items-start gap-2 text-xs text-red-600 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-md px-3 py-2">

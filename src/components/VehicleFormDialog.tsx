@@ -8,13 +8,14 @@
  * and is responsible for closing/resetting itself.
  */
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, Image as ImageIcon, Loader2, ScanLine, Sparkles } from "lucide-react";
+import { AlertCircle, Camera, CheckCircle2, Image as ImageIcon, Loader2, ScanLine, Sparkles } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
 import { ApiError } from "@/lib/api";
 import { useDecodeVin } from "@/hooks/api/use-vehicles";
+import { VinScannerDialog } from "@/components/VinScannerDialog";
 import {
   ALL_BODY_TYPES, DRIVETRAIN_OPTIONS, ENGINE_OPTIONS, FUEL_OPTIONS,
   TRANSMISSION_OPTIONS, decodedVinToFormPatch, type VehicleFormInput,
@@ -50,6 +51,7 @@ export function VehicleFormDialog({
   const decodeVinMut = useDecodeVin();
   const [vinError, setVinError] = useState<string | null>(null);
   const [vinDecoded, setVinDecoded] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [engineOther, setEngineOther] = useState(false);
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const imagesInputRef = useRef<HTMLInputElement>(null);
@@ -77,8 +79,8 @@ export function VehicleFormDialog({
   // powers both this dialog and bulk upload, and the field-mapping lives in one
   // place (vehicle-mapper.decodedVinToFormPatch). Decoded specs land in the
   // editable fields below — the user reviews/tweaks, then Adds.
-  const decodeVin = async () => {
-    const v = vin.trim().toUpperCase();
+  const decodeVin = async (vinOverride?: string) => {
+    const v = (vinOverride ?? vin).trim().toUpperCase();
     setVinError(null);
     if (!VIN_RE.test(v)) {
       setVinError("VIN must be 17 characters (letters & digits, no I/O/Q).");
@@ -103,6 +105,22 @@ export function VehicleFormDialog({
       setVinError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to decode VIN");
       setVinDecoded(false);
     }
+  };
+
+  // A scanned VIN flows straight into the field and auto-decodes. `verified`
+  // reflects the check digit; an unverified read still tries to decode (NHTSA
+  // is the final authority) but nudges the user to confirm.
+  const handleVinScanned = (scanned: string, verified: boolean) => {
+    setVin(scanned.toUpperCase());
+    setVinError(null);
+    setVinDecoded(false);
+    if (!verified) {
+      toast({
+        title: "VIN scanned",
+        description: "Couldn't verify the check digit — please double-check the VIN.",
+      });
+    }
+    void decodeVin(scanned);
   };
 
   const handleImagesPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -179,6 +197,7 @@ export function VehicleFormDialog({
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -193,7 +212,7 @@ export function VehicleFormDialog({
           <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
             <ScanLine className="h-3.5 w-3.5" /> Quick Add by VIN
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <div className="relative flex-1">
               <input
                 value={vin}
@@ -208,14 +227,25 @@ export function VehicleFormDialog({
                 {vin.length}/17
               </span>
             </div>
-            <button
-              onClick={decodeVin}
-              disabled={!isVinValid || decodeVinMut.isPending}
-              className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              {decodeVinMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
-              {decodeVinMut.isPending ? "Decoding…" : "Decode VIN"}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setScannerOpen(true)}
+                title="Scan the VIN with your camera"
+                className="flex items-center gap-2 border rounded-lg px-3 py-2 text-sm font-medium hover:bg-muted transition whitespace-nowrap"
+              >
+                <Camera className="h-4 w-4" /> Scan
+              </button>
+              <button
+                type="button"
+                onClick={() => decodeVin()}
+                disabled={!isVinValid || decodeVinMut.isPending}
+                className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition whitespace-nowrap"
+              >
+                {decodeVinMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+                {decodeVinMut.isPending ? "Decoding…" : "Decode VIN"}
+              </button>
+            </div>
           </div>
           {vinError && (
             <div className="flex items-start gap-2 text-xs text-red-600 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-md px-3 py-2">
@@ -432,5 +462,12 @@ export function VehicleFormDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <VinScannerDialog
+      open={scannerOpen}
+      onOpenChange={setScannerOpen}
+      onDetected={handleVinScanned}
+    />
+    </>
   );
 }
