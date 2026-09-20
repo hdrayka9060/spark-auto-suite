@@ -216,10 +216,6 @@ export function DocumentTemplatesManager() {
               </div>
             )}
 
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
-              Active
-            </label>
           </div>
 
           <DialogFooter>
