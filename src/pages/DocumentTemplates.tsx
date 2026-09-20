@@ -10,9 +10,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/hooks/use-toast";
 import { useCan } from "@/components/Can";
 import {
@@ -20,27 +18,17 @@ import {
 } from "@/hooks/api/use-documents";
 import { DocTemplate } from "@/lib/document-mapper";
 
-const ANCHORS = [
-  { value: "bottom-right", label: "Bottom right" },
-  { value: "bottom-left", label: "Bottom left" },
-  { value: "bottom-center", label: "Bottom center" },
-];
-
 interface FormState {
   id?: string;
   name: string;
   description: string;
   category: string;
-  signaturePage: string;
-  signatureAnchor: string;
-  requireSignerName: boolean;
   isActive: boolean;
   file: File | null;
 }
 
 const EMPTY: FormState = {
-  name: "", description: "", category: "general", signaturePage: "0",
-  signatureAnchor: "bottom-right", requireSignerName: true, isActive: true, file: null,
+  name: "", description: "", category: "general", isActive: true, file: null,
 };
 
 /**
@@ -68,23 +56,20 @@ export function DocumentTemplatesManager() {
   const openEdit = (t: DocTemplate) => {
     setForm({
       id: t.id, name: t.name, description: t.description, category: t.category,
-      signaturePage: String(t.signaturePage), signatureAnchor: t.signatureAnchor,
-      requireSignerName: t.requireSignerName, isActive: t.isActive, file: null,
+      isActive: t.isActive, file: null,
     });
     setDialogOpen(true);
   };
 
   const submit = async () => {
     if (!form.name.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
-    const page = Number(form.signaturePage) || 0;
     try {
       if (isEdit) {
         await updateTpl.mutateAsync({
           id: form.id!,
           input: {
             name: form.name, description: form.description, category: form.category,
-            signaturePage: page, signatureAnchor: form.signatureAnchor,
-            requireSignerName: form.requireSignerName, isActive: form.isActive,
+            isActive: form.isActive,
           },
         });
         toast({ title: "Template updated" });
@@ -92,14 +77,22 @@ export function DocumentTemplatesManager() {
         if (!form.file) { toast({ title: "A PDF or image file is required", variant: "destructive" }); return; }
         await createTpl.mutateAsync({
           name: form.name, file: form.file, description: form.description, category: form.category,
-          signaturePage: page, signatureAnchor: form.signatureAnchor,
-          requireSignerName: form.requireSignerName, isActive: form.isActive,
+          isActive: form.isActive,
         });
         toast({ title: "Template created" });
       }
       setDialogOpen(false);
     } catch (err) {
       toast({ title: "Save failed", description: err instanceof Error ? err.message : undefined, variant: "destructive" });
+    }
+  };
+
+  const toggleActive = async (t: DocTemplate) => {
+    try {
+      await updateTpl.mutateAsync({ id: t.id, input: { isActive: !t.isActive } });
+      toast({ title: t.isActive ? "Template deactivated" : "Template activated" });
+    } catch (err) {
+      toast({ title: "Update failed", description: err instanceof Error ? err.message : undefined, variant: "destructive" });
     }
   };
 
@@ -144,14 +137,24 @@ export function DocumentTemplatesManager() {
               <li key={t.id} className="flex items-center gap-3 py-3">
                 <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">{t.name}</span>
-                    {!t.isActive && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">inactive</span>}
-                  </div>
+                  <span className="truncate font-medium">{t.name}</span>
                   <p className="text-xs text-muted-foreground">
-                    {t.category} · {t.sourceType.toUpperCase()} · sign on {t.signaturePage ? `page ${t.signaturePage}` : "last page"} ({t.signatureAnchor.replace("-", " ")})
+                    {t.category} · {t.sourceType.toUpperCase()}
                   </p>
                 </div>
+                {canEdit && (
+                  <div className="flex shrink-0 items-center gap-2" title={t.isActive ? "Active — click to deactivate" : "Inactive — click to activate"}>
+                    <Switch
+                      checked={t.isActive}
+                      onCheckedChange={() => toggleActive(t)}
+                      disabled={updateTpl.isPending}
+                      aria-label={t.isActive ? "Deactivate template" : "Activate template"}
+                    />
+                    <span className={`w-14 text-xs ${t.isActive ? "text-foreground" : "text-muted-foreground"}`}>
+                      {t.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center gap-1">
                   {t.fileUrl && (
                     <a href={t.fileUrl} target="_blank" rel="noreferrer" className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="Preview">
@@ -194,25 +197,9 @@ export function DocumentTemplatesManager() {
               <label className="text-sm font-medium">Description</label>
               <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium">Category</label>
-                <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm" />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Signature page</label>
-                <input type="number" min={0} value={form.signaturePage} onChange={(e) => setForm({ ...form, signaturePage: e.target.value })} className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm" />
-                <p className="mt-1 text-[10px] text-muted-foreground">0 = last page</p>
-              </div>
-            </div>
             <div>
-              <label className="text-sm font-medium">Signature position</label>
-              <Select value={form.signatureAnchor} onValueChange={(v) => setForm({ ...form, signatureAnchor: v })}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {ANCHORS.map((a) => <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <label className="text-sm font-medium">Category</label>
+              <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm" />
             </div>
 
             {!isEdit && (
@@ -229,16 +216,10 @@ export function DocumentTemplatesManager() {
               </div>
             )}
 
-            <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.requireSignerName} onChange={(e) => setForm({ ...form, requireSignerName: e.target.checked })} />
-                Require signer name
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
-                Active
-              </label>
-            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
+              Active
+            </label>
           </div>
 
           <DialogFooter>
