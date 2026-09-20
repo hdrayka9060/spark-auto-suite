@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { BACKEND_ORIGIN, tokenStorage } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { MESSAGING_KEY } from "@/hooks/api/use-messaging";
+import { NOTIFICATIONS_KEY } from "@/hooks/api/use-notifications";
 
 /**
  * App-wide Socket.io connection for staff chat. Connects only while
@@ -62,6 +63,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socket.on("message:edited", refreshMessages);
     socket.on("message:deleted", refreshMessages);
     socket.on("conversation:updated", refreshConversations);
+
+    // Notifications ride the same personal-room socket: refresh the bell's
+    // unread badge + list the moment a new one is pushed.
+    socket.on("notification:new", () => {
+      qc.invalidateQueries({ queryKey: [...NOTIFICATIONS_KEY, "unread"] });
+      qc.invalidateQueries({ queryKey: [...NOTIFICATIONS_KEY, "list"] });
+    });
 
     return () => {
       socket.removeAllListeners();

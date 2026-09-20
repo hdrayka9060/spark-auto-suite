@@ -9,13 +9,14 @@ import {
 import {
   useDeleteVehicle, useDeleteVehicleImage, useReorderVehicleImages, useUpdateVehicle, useUploadVehicleImages,
   useVehicle, useVehicleActivity, useMarkVehicleSold, useSoldBuyer,
-  useAddVehicleSpend, useUpdateVehicleSpend, useDeleteVehicleSpend,
+  useAddVehicleSpend, useUpdateVehicleSpend, useDeleteVehicleSpend, MarkSoldInput,
 } from "@/hooks/api/use-vehicles";
 import { useBuyers } from "@/hooks/api/use-buyers";
 import { useAssignLeadBuyer } from "@/hooks/api/use-leads";
 import {
   SaleDetailsFields, SaleDetails, seedSaleDetails, validateSaleDetails,
 } from "@/components/SaleDetailsFields";
+import { computeMissing, EmiField } from "@/lib/emi-solver";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -121,6 +122,30 @@ export default function VehicleDetail() {
   // optional — when set, the sale is pushed onto that buyer's purchases[].
   const [showMarkSold, setShowMarkSold] = useState(false);
   const [saleDetails, setSaleDetails] = useState<SaleDetails>(() => seedSaleDetails());
+  // BHPH financing sub-form (only when paymentMethod === "bhph").
+  const [bhph, setBhph] = useState({ rate: "10", term: "24", emi: "" });
+  const [bhphOrder, setBhphOrder] = useState<EmiField[]>(["term", "rate", "emi"]);
+  const setBhphField = (f: EmiField, v: string) => {
+    setBhph((p) => ({ ...p, [f]: v }));
+    setBhphOrder((prev) => [f, ...prev.filter((x) => x !== f)]);
+  };
+  const numU = (s: string): number | undefined => {
+    const v = parseFloat(s);
+    return s.trim() === "" || Number.isNaN(v) ? undefined : v;
+  };
+  const bhphPrincipal = Math.max(0, (saleDetails.soldAt || 0) - (saleDetails.amountPaid || 0));
+  const bhphDerived = bhphOrder[2];
+  const bhphDerivedVal = computeMissing(
+    bhphPrincipal,
+    {
+      rate: bhphDerived === "rate" ? undefined : numU(bhph.rate),
+      term: bhphDerived === "term" ? undefined : numU(bhph.term),
+      emi: bhphDerived === "emi" ? undefined : numU(bhph.emi),
+    },
+    bhphDerived,
+  );
+  const bhphDisplay = (f: EmiField) =>
+    f === bhphDerived ? (bhphDerivedVal == null ? "" : f === "term" ? String(Math.round(bhphDerivedVal)) : bhphDerivedVal.toFixed(2)) : bhph[f];
   const [saleBuyer, setSaleBuyer] = useState({ buyerName: "", buyerEmail: "", buyerPhone: "", linkedBuyerId: "" });
   // Assign-buyer-to-a-sold-walk-in dialog state.
   const [showAssignBuyer, setShowAssignBuyer] = useState(false);
@@ -201,6 +226,27 @@ export default function VehicleDetail() {
     }
     const err = validateSaleDetails(saleDetails);
     if (err) { toast({ title: "Check the sale details", description: err, variant: "destructive" }); return; }
+
+    const bhphFields: Partial<MarkSoldInput> = {};
+    if (saleDetails.paymentMethod === "bhph") {
+      if (!saleBuyer.linkedBuyerId && !saleBuyer.buyerEmail.trim()) {
+        toast({ title: "Buyer required", description: "A BHPH sale needs a buyer (pick one or enter email + phone).", variant: "destructive" });
+        return;
+      }
+      if (!saleDetails.amountPaid || saleDetails.amountPaid <= 0) {
+        toast({ title: "Down payment required", description: "Enter the amount paid up-front for a BHPH sale.", variant: "destructive" });
+        return;
+      }
+      const auth: EmiField[] = [bhphOrder[0], bhphOrder[1]];
+      if (!auth.every((f) => numU(bhph[f]) !== undefined) || bhphDerivedVal == null) {
+        toast({ title: "Fill any two of interest, term, EMI", variant: "destructive" });
+        return;
+      }
+      if (auth.includes("rate")) bhphFields.interestRatePercent = numU(bhph.rate);
+      if (auth.includes("term")) bhphFields.termMonths = parseInt(bhph.term, 10);
+      if (auth.includes("emi")) bhphFields.emiAmount = numU(bhph.emi);
+    }
+
     try {
       await markSold.mutateAsync({
         buyerName: saleBuyer.buyerName.trim() || undefined,
@@ -210,8 +256,9 @@ export default function VehicleDetail() {
         amountPaid: saleDetails.amountPaid,
         saleDate: saleDetails.saleDate,
         paymentMethod: saleDetails.paymentMethod,
-        paymentStatus: saleDetails.paymentStatus,
+        paymentStatus: saleDetails.paymentMethod === "bhph" ? "partial" : saleDetails.paymentStatus,
         buyerLeadId: saleBuyer.linkedBuyerId || undefined,
+        ...bhphFields,
       });
       toast({ title: "Vehicle marked as sold", description: vehicle.title });
       setShowMarkSold(false);
@@ -582,6 +629,30 @@ export default function VehicleDetail() {
               </div>
             </div>
             <SaleDetailsFields value={saleDetails} onChange={setSaleDetails} />
+
+            {saleDetails.paymentMethod === "bhph" && (
+              <div className="space-y-2 border rounded-lg p-3 bg-primary/5">
+                <p className="text-xs font-medium">BHPH financing — amount paid above is the down payment.</p>
+                <p className="text-[11px] text-muted-foreground">Financed ${bhphPrincipal.toLocaleString()} · fill any two below.</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["rate", "term", "emi"] as EmiField[]).map((f) => (
+                    <div key={f}>
+                      <label className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        {f === "rate" ? "Interest %" : f === "term" ? "Term (mo)" : "EMI ($/mo)"}
+                        {f === bhphDerived && <span className="text-primary">(auto)</span>}
+                      </label>
+                      <input
+                        type="number"
+                        step={f === "term" ? "1" : "0.01"}
+                        value={bhphDisplay(f)}
+                        onChange={(e) => setBhphField(f, e.target.value)}
+                        className={`w-full border rounded-lg px-2 py-2 text-sm bg-background ${f === bhphDerived ? "border-primary/40" : ""}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <button

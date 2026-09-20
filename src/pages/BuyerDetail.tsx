@@ -30,6 +30,7 @@ import {
   Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useCan } from "@/components/Can";
+import { BuyerDocumentsCard } from "@/components/BuyerDocumentsCard";
 
 const LEAD_STATUSES: ClientBuyerStatus[] = ["Active", "Converted", "Dropped"];
 
@@ -721,6 +722,14 @@ export default function BuyerDetail() {
           </div>
         )}
       </div>
+
+      {/* Documents */}
+      <BuyerDocumentsCard
+        buyerLeadId={id!}
+        buyerName={buyer.name}
+        canEdit={canEdit}
+        canDelete={canDelete}
+      />
 
       {/* Edit dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

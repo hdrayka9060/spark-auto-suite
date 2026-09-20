@@ -265,6 +265,11 @@ export interface CloseLeadInput {
   paymentStatus: "paid" | "partial" | "pending";
   saleDate?: string;
   notes?: string;
+  // BHPH financing (only when paymentMethod === "bhph"): amountPaid is the down
+  // payment; supply any two of interest / term / EMI.
+  interestRatePercent?: number;
+  termMonths?: number;
+  emiAmount?: number;
 }
 
 export function useCloseLead(id: string) {
@@ -279,10 +284,13 @@ export function useCloseLead(id: string) {
     },
     onSuccess: (lead) => {
       seedDetail(qc, id, lead);
-      // Closing a lead touches inventory, buyers, and accounting too.
+      // Closing a lead touches inventory, buyers, accounting, dashboard and
+      // (for BHPH) loans too.
       qc.invalidateQueries({ queryKey: ["vehicles"] });
       qc.invalidateQueries({ queryKey: ["buyers"] });
       qc.invalidateQueries({ queryKey: ["accounting"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["loans"] });
       // Force-refetch the leads list: invalidate alone marks queries stale,
       // but the kanban often holds onto its previous snapshot while the new
       // data is in flight. The sibling-archive cascade has to be visible the

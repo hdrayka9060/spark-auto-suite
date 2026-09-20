@@ -234,6 +234,11 @@ export interface MarkSoldInput {
   /** Optional CRM Buyer id — links the sale onto buyer.purchases[]. */
   buyerLeadId?: string;
   notes?: string;
+  // BHPH financing (only when paymentMethod === "bhph"): amountPaid is the down
+  // payment; supply any two of interest / term / EMI. A buyer is required.
+  interestRatePercent?: number;
+  termMonths?: number;
+  emiAmount?: number;
 }
 
 /**
@@ -256,6 +261,8 @@ export function useMarkVehicleSold(id: string) {
       qc.invalidateQueries({ queryKey: ["buyers"] });
       qc.invalidateQueries({ queryKey: ["accounting"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      // BHPH mark-sold also creates a loan.
+      qc.invalidateQueries({ queryKey: ["loans"] });
     },
   });
 }

@@ -16,6 +16,7 @@ import {
   Facebook,
   Shield,
   UserCog,
+  Bell,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -46,6 +47,13 @@ export interface NavItem {
    * flag off to bring the tab back. See <AppLayout> which filters on it.
    */
   hidden?: boolean;
+  /**
+   * When true, the item is shown to EVERY authenticated user regardless of the
+   * permission matrix, and its route is ungated. Used for per-user pages that
+   * aren't a module (e.g. Notifications). `moduleForPath` returns null for these
+   * so <PermissionRoute> lets anyone in, and its `label` need not be an AppModule.
+   */
+  alwaysShow?: boolean;
 }
 
 export const navItems: NavItem[] = [
@@ -55,8 +63,7 @@ export const navItems: NavItem[] = [
   { label: "CRM – Buyers", icon: UserCheck, path: "/crm-buyers" },
   { label: "Leads & Sales", icon: Target, path: "/leads" },
   { label: "Accounting", icon: DollarSign, path: "/accounting" },
-  // Hidden pending rebuild — keep entries so routing/permissions still resolve.
-  { label: "BHPH", icon: CreditCard, path: "/bhph", hidden: true },
+  { label: "BHPH", icon: CreditCard, path: "/bhph" },
   { label: "Dealer Website", icon: Globe, path: "/dealer-website" },
   { label: "Facebook Listings", icon: Facebook, path: "/facebook" },
   { label: "Digital Marketing", icon: Megaphone, path: "/marketing" },
@@ -67,7 +74,9 @@ export const navItems: NavItem[] = [
   { label: "Support", icon: HeadphonesIcon, path: "/support", hidden: true },
   { label: "Staff", icon: UserCog, path: "/staff" },
   { label: "Roles", icon: Shield, path: "/roles" },
-  { label: "Settings", icon: Settings, path: "/settings", hidden: true },
+  { label: "Settings", icon: Settings, path: "/settings" },
+  // Per-user, not a module — shown to everyone, route ungated (see alwaysShow).
+  { label: "Notifications", icon: Bell, path: "/notifications", alwaysShow: true },
 ];
 
 /**
@@ -77,12 +86,13 @@ export const navItems: NavItem[] = [
  * required" (e.g. `/settings/profile` could later opt in to Settings).
  */
 export function moduleForPath(pathname: string): string | null {
-  // Exact match first (handles `/`).
+  // Exact match first (handles `/`). `alwaysShow` items are ungated → null.
   const exact = navItems.find((n) => n.path === pathname);
-  if (exact) return exact.label;
+  if (exact) return exact.alwaysShow ? null : exact.label;
   // Prefix match — but NOT `/` because every path starts with `/`.
   const prefix = navItems.find(
     (n) => n.path !== "/" && pathname.startsWith(n.path + "/"),
   );
-  return prefix?.label ?? null;
+  if (!prefix) return null;
+  return prefix.alwaysShow ? null : prefix.label;
 }

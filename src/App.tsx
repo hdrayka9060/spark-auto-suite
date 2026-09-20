@@ -55,6 +55,9 @@ const Support = lazy(() => import("./pages/Support"));
 const StaffManagement = lazy(() => import("./pages/StaffManagement"));
 const RolesPermissions = lazy(() => import("./pages/RolesPermissions"));
 const Settings = lazy(() => import("./pages/Settings"));
+const DocumentTemplates = lazy(() => import("./pages/DocumentTemplates"));
+const NotificationSettings = lazy(() => import("./pages/NotificationSettings"));
+const Notifications = lazy(() => import("./pages/Notifications"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const BuyerPortal = lazy(() => import("./pages/portal/BuyerPortal"));
 
@@ -142,6 +145,12 @@ const App = () => (
             <Route path="/staff" element={<PermissionRoute><StaffManagement /></PermissionRoute>} />
             <Route path="/roles" element={<PermissionRoute><RolesPermissions /></PermissionRoute>} />
             <Route path="/settings" element={<PermissionRoute><Settings /></PermissionRoute>} />
+            {/* Inherits the Settings module gate via moduleForPath prefix match. */}
+            <Route path="/settings/document-templates" element={<PermissionRoute><DocumentTemplates /></PermissionRoute>} />
+            {/* Ungated (moduleForPath → null): every authenticated user manages their own prefs. */}
+            <Route path="/account/notifications" element={<PermissionRoute><NotificationSettings /></PermissionRoute>} />
+            {/* Per-user notifications tab — ungated via the alwaysShow nav item. */}
+            <Route path="/notifications" element={<PermissionRoute><Notifications /></PermissionRoute>} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

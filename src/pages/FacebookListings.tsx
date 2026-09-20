@@ -425,11 +425,16 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
             <p className="text-sm text-muted-foreground py-6 text-center">No vehicles found.</p>
           ) : (
             vehicles.map((v) => (
-              <button
+              <div
                 key={v.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => onPickVehicle(v)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPickVehicle(v); }
+                }}
                 className={cn(
-                  "w-full text-left flex items-center gap-3 p-2 rounded-lg border transition-colors",
+                  "w-full text-left flex items-center gap-3 p-2 rounded-lg border transition-colors cursor-pointer",
                   selectedMap[v.id]
                     ? "border-primary bg-primary/5"
                     : "border-transparent hover:bg-muted/50",
@@ -453,7 +458,7 @@ function PublishTab({ onPublished }: { onPublished: () => void }) {
                     ${v.price?.toLocaleString()} · {v.status}
                   </div>
                 </div>
-              </button>
+              </div>
             ))
           )}
         </div>

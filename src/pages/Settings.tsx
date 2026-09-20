@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
-import { User, Building, Bell, Loader2, AlertCircle, Save } from "lucide-react";
+import { User, Building, Bell, Loader2, AlertCircle, Save, FileSignature } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import { useDealerSettings, useUpdateDealerSettings, useUpdateNotificationPrefs } from "@/hooks/api/use-settings";
+import { useDealerSettings, useUpdateDealerSettings } from "@/hooks/api/use-settings";
 import { ApiError } from "@/lib/api";
-import { NOTIFICATION_LABELS, NotificationPrefs } from "@/lib/settings-mapper";
+import { NotificationPreferences } from "@/components/NotificationPreferences";
+import { DocumentTemplatesManager } from "@/pages/DocumentTemplates";
 import { toast } from "@/hooks/use-toast";
 
-type Tab = "profile" | "dealership" | "notifications";
+type Tab = "profile" | "dealership" | "notifications" | "documents";
 
 const TABS: { key: Tab; label: string; icon: typeof User; description: string }[] = [
   { key: "profile", label: "Profile", icon: User, description: "Manage your account details" },
   { key: "dealership", label: "Dealership", icon: Building, description: "Business information and branding" },
   { key: "notifications", label: "Notifications", icon: Bell, description: "Email and alert preferences" },
+  { key: "documents", label: "Documents", icon: FileSignature, description: "Signable document templates" },
 ];
 
 export default function Settings() {
@@ -26,7 +28,7 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -46,7 +48,8 @@ export default function Settings() {
 
       {tab === "profile" && <ProfileSection />}
       {tab === "dealership" && <DealershipSection />}
-      {tab === "notifications" && <NotificationsSection />}
+      {tab === "notifications" && <NotificationPreferences />}
+      {tab === "documents" && <DocumentTemplatesManager />}
     </div>
   );
 }
@@ -259,84 +262,6 @@ function DealershipSection() {
         >
           {updateSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           Save Changes
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Notifications ─────────────────────────────────────────────────────────
-
-function NotificationsSection() {
-  const settingsQuery = useDealerSettings();
-  const updateNotif = useUpdateNotificationPrefs();
-  const [prefs, setPrefs] = useState<NotificationPrefs>({
-    emailNotifications: true, smsNotifications: false,
-    leadAlerts: true, paymentAlerts: true, supportAlerts: true,
-  });
-
-  useEffect(() => {
-    if (settingsQuery.data?.notifications) {
-      setPrefs(settingsQuery.data.notifications);
-    }
-  }, [settingsQuery.data]);
-
-  if (settingsQuery.isLoading) {
-    return (
-      <div className="stat-card text-center py-12 text-muted-foreground flex items-center justify-center gap-2">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading settings…
-      </div>
-    );
-  }
-
-  const toggle = (key: keyof NotificationPrefs) => {
-    setPrefs((p) => ({ ...p, [key]: !p[key] }));
-  };
-
-  const handleSave = async () => {
-    try {
-      await updateNotif.mutateAsync(prefs);
-      toast({ title: "Notification preferences saved" });
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "Save failed";
-      toast({ title: "Save failed", description: msg, variant: "destructive" });
-    }
-  };
-
-  return (
-    <div className="stat-card space-y-4">
-      <h3 className="font-display font-semibold">Notification Preferences</h3>
-      <p className="text-xs text-muted-foreground -mt-2">Control which notifications you receive from the system.</p>
-
-      <div className="space-y-3">
-        {(Object.keys(NOTIFICATION_LABELS) as (keyof NotificationPrefs)[]).map((key) => {
-          const meta = NOTIFICATION_LABELS[key];
-          return (
-            <label key={key} className="flex items-center justify-between p-3 border rounded-lg cursor-pointer hover:bg-muted">
-              <div>
-                <p className="font-medium text-sm">{meta.title}</p>
-                <p className="text-xs text-muted-foreground">{meta.description}</p>
-              </div>
-              <input
-                type="checkbox"
-                checked={!!prefs[key]}
-                onChange={() => toggle(key)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-300 peer-checked:bg-primary rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-transform peer-checked:after:translate-x-5" />
-            </label>
-          );
-        })}
-      </div>
-
-      <div className="flex justify-end">
-        <button
-          onClick={handleSave}
-          disabled={updateNotif.isPending}
-          className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-60"
-        >
-          {updateNotif.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          Save Preferences
         </button>
       </div>
     </div>

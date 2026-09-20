@@ -15,11 +15,13 @@ import { useVehicle, useVehicles } from "@/hooks/api/use-vehicles";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/api";
 import { ClientMeetingType, ParticipantInput } from "@/lib/calendar-mapper";
+import { computeMissing, EmiField } from "@/lib/emi-solver";
 import {
   ALL_LEAD_CHANNELS, ALL_LEAD_STATUSES, ClientLeadChannel, ClientLeadStatus, LeadLogEntry,
 } from "@/lib/lead-mapper";
 import { toast } from "@/hooks/use-toast";
 import { useCan } from "@/components/Can";
+import { BuyerDocumentsCard } from "@/components/BuyerDocumentsCard";
 import { useConfirm } from "@/components/ConfirmDialog";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -81,6 +83,11 @@ export default function LeadDetail() {
   const currentUser = authState.user;
   const canEdit = useCan("Leads & Sales", "edit");
   const canDelete = useCan("Leads & Sales", "delete");
+  // Buyer documents are gated by the CRM – Buyers permission (the backend
+  // requires it), not the Leads permission.
+  const canBuyerEdit = useCan("CRM – Buyers", "edit");
+  const canBuyerDelete = useCan("CRM – Buyers", "delete");
+  const canBuyerView = useCan("CRM – Buyers", "view");
   const confirm = useConfirm();
 
   // Assign-buyer (for walk-in leads with no buyer yet).
@@ -152,6 +159,31 @@ export default function LeadDetail() {
     saleDate: new Date().toISOString().slice(0, 10),
     notes: "",
   });
+  // BHPH financing sub-form (only used when paymentMethod === "bhph"): the
+  // amount-paid field is the down payment; the trio solves any-2-of-3.
+  const [bhph, setBhph] = useState({ rate: "10", term: "24", emi: "" });
+  const [bhphOrder, setBhphOrder] = useState<EmiField[]>(["term", "rate", "emi"]);
+  const setBhphField = (f: EmiField, v: string) => {
+    setBhph((p) => ({ ...p, [f]: v }));
+    setBhphOrder((prev) => [f, ...prev.filter((x) => x !== f)]);
+  };
+  const numU = (s: string): number | undefined => {
+    const v = parseFloat(s);
+    return s.trim() === "" || Number.isNaN(v) ? undefined : v;
+  };
+  const bhphPrincipal = Math.max(0, (closeForm.soldAt || 0) - (closeForm.amountPaid || 0));
+  const bhphDerived = bhphOrder[2];
+  const bhphDerivedVal = computeMissing(
+    bhphPrincipal,
+    {
+      rate: bhphDerived === "rate" ? undefined : numU(bhph.rate),
+      term: bhphDerived === "term" ? undefined : numU(bhph.term),
+      emi: bhphDerived === "emi" ? undefined : numU(bhph.emi),
+    },
+    bhphDerived,
+  );
+  const bhphDisplay = (f: EmiField) =>
+    f === bhphDerived ? (bhphDerivedVal == null ? "" : f === "term" ? String(Math.round(bhphDerivedVal)) : bhphDerivedVal.toFixed(2)) : bhph[f];
 
   useEffect(() => {
     if (leadQuery.data) {
@@ -325,11 +357,13 @@ export default function LeadDetail() {
       toast({ title: "Sold price required", variant: "destructive" });
       return;
     }
-    if (closeForm.paymentStatus === "partial") {
+    if (closeForm.paymentStatus === "partial" || closeForm.paymentMethod === "bhph") {
       if (closeForm.amountPaid === undefined || closeForm.amountPaid <= 0) {
         toast({
-          title: "Amount paid required",
-          description: "Partial payments need the amount actually received.",
+          title: closeForm.paymentMethod === "bhph" ? "Down payment required" : "Amount paid required",
+          description: closeForm.paymentMethod === "bhph"
+            ? "A BHPH sale needs the amount paid up-front (down payment)."
+            : "Partial payments need the amount actually received.",
           variant: "destructive",
         });
         return;
@@ -339,14 +373,29 @@ export default function LeadDetail() {
         return;
       }
     }
+
+    const bhphFields: Partial<CloseLeadInput> = {};
+    if (closeForm.paymentMethod === "bhph") {
+      const auth: EmiField[] = [bhphOrder[0], bhphOrder[1]];
+      if (!auth.every((f) => numU(bhph[f]) !== undefined) || bhphDerivedVal == null) {
+        toast({ title: "Fill any two of interest, term, EMI", variant: "destructive" });
+        return;
+      }
+      if (auth.includes("rate")) bhphFields.interestRatePercent = numU(bhph.rate);
+      if (auth.includes("term")) bhphFields.termMonths = parseInt(bhph.term, 10);
+      if (auth.includes("emi")) bhphFields.emiAmount = numU(bhph.emi);
+    }
+
     try {
       await closeLead.mutateAsync({
         soldAt: closeForm.soldAt,
         amountPaid: closeForm.amountPaid,
         paymentMethod: closeForm.paymentMethod,
-        paymentStatus: closeForm.paymentStatus,
+        // A BHPH sale is financed → the ledger row is partial until the loan pays down.
+        paymentStatus: closeForm.paymentMethod === "bhph" ? "partial" : closeForm.paymentStatus,
         saleDate: closeForm.saleDate,
         notes: closeForm.notes || undefined,
+        ...bhphFields,
       });
       toast({
         title: "Lead closed",
@@ -745,6 +794,27 @@ export default function LeadDetail() {
         <p className="text-xs text-muted-foreground mt-2">Notes are saved when you press "Save Changes" in the Update Lead panel.</p>
       </div>
 
+      {/* Documents (buyer-owned; surfaced here for the lead's buyer) */}
+      {canBuyerView && (
+        lead.isWalkIn || !lead.buyerId ? (
+          <div className="stat-card">
+            <h3 className="font-display font-semibold mb-2">Documents</h3>
+            <p className="text-sm text-muted-foreground">
+              Assign a buyer to this lead to manage their documents.
+            </p>
+          </div>
+        ) : (
+          <BuyerDocumentsCard
+            buyerLeadId={lead.buyerId}
+            buyerName={lead.buyerName}
+            leadId={lead.id}
+            vehicleId={lead.vehicleId}
+            canEdit={canBuyerEdit}
+            canDelete={canBuyerDelete}
+          />
+        )
+      )}
+
       {/* Log communication dialog (add + edit) */}
       <Dialog open={logDialogOpen} onOpenChange={setLogDialogOpen}>
         <DialogContent className="max-w-lg">
@@ -1084,6 +1154,31 @@ export default function LeadDetail() {
                 className="w-full border rounded-lg px-3 py-2 text-sm bg-background"
               />
             </div>
+
+            {closeForm.paymentMethod === "bhph" && (
+              <div className="md:col-span-2 space-y-2 border rounded-lg p-3 bg-primary/5">
+                <p className="text-xs font-medium">BHPH financing — amount paid above is the down payment.</p>
+                <p className="text-[11px] text-muted-foreground">Financed ${bhphPrincipal.toLocaleString()} · fill any two below.</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["rate", "term", "emi"] as EmiField[]).map((f) => (
+                    <div key={f}>
+                      <label className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        {f === "rate" ? "Interest %" : f === "term" ? "Term (mo)" : "EMI ($/mo)"}
+                        {f === bhphDerived && <span className="text-primary">(auto)</span>}
+                      </label>
+                      <input
+                        type="number"
+                        step={f === "term" ? "1" : "0.01"}
+                        value={bhphDisplay(f)}
+                        onChange={(e) => setBhphField(f, e.target.value)}
+                        className={`w-full border rounded-lg px-2 py-2 text-sm bg-background ${f === bhphDerived ? "border-primary/40" : ""}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <textarea
               value={closeForm.notes ?? ""}
               onChange={(e) => setCloseForm({ ...closeForm, notes: e.target.value })}

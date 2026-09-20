@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 import {
-  ChevronLeft, ChevronRight, Bell, Search, User, LogOut, Menu,
+  ChevronLeft, ChevronRight, Search, User, LogOut, Menu,
 } from "lucide-react";
 import { navItems } from "@/config/nav";
 import { useUnreadCount } from "@/hooks/api/use-messaging";
+import { usePushAutoPrompt } from "@/hooks/use-push-auto-prompt";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { NotificationBell } from "@/components/NotificationBell";
 
 const SIDEBAR_BG = "hsl(222 47% 11%)";
 const SIDEBAR_BORDER = "hsl(222 30% 20%)";
@@ -42,6 +44,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const unreadQuery = useUnreadCount(hasPermission("Communication", "view"));
   const unreadTotal = unreadQuery.data?.total ?? 0;
   const user = state.status === "authenticated" ? state.user : null;
+  // One-time nudge to turn on desktop/OS push (only when signed in).
+  usePushAutoPrompt(!!user);
   const displayName = user
     ? `${user.firstName} ${user.lastName}`.trim() || user.email
     : "Dealer";
@@ -58,7 +62,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // `hidden` retires a module from the sidebar (pending rebuild) regardless of
   // permission; the rest is the normal permission filter.
   const visibleNavItems = navItems.filter(
-    (item) => !item.hidden && hasPermission(item.label, "view"),
+    (item) => !item.hidden && (item.alwaysShow || hasPermission(item.label, "view")),
   );
 
   const handleLogout = async () => {
@@ -125,10 +129,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
-              <Bell className="h-5 w-5 text-muted-foreground" />
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-destructive rounded-full" />
-            </button>
+            <NotificationBell />
             <div className="flex items-center gap-2 pl-4 border-l max-md:pl-2 max-md:border-l-0">
               <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center">
                 <User className="h-4 w-4 text-primary-foreground" />
