@@ -101,6 +101,8 @@ export interface LoanScheduleSummary {
   principalCollected: number;
   interestCollected: number;
   outstanding: number;
+  /** Remaining financed principal — the early-payoff amount. */
+  outstandingPrincipal?: number;
   nextDueAt?: string;
   overdueCount: number;
   status: ServerLoanStatus;

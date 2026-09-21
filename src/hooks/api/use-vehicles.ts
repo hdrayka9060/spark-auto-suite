@@ -267,6 +267,72 @@ export function useMarkVehicleSold(id: string) {
   });
 }
 
+/**
+ * Reverse a sale from Vehicle Details — archives any BHPH loan (interest income
+ * backed out) + receivable, soft-deletes the Sale, and un-sells the car. The
+ * page confirms via the app's own dialog (warning + linked leads) first.
+ */
+export function useMarkVehicleUnsold(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<void> => {
+      await api(`/inventory/${id}/mark-unsold`, { method: "POST" });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["buyers"] });
+      qc.invalidateQueries({ queryKey: ["accounting"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["loans"] });
+    },
+  });
+}
+
+export interface VehiclePaymentInfo {
+  vehicleStatus: string;
+  sale: { _id: string; paymentMethod: string; paymentStatus: string; salePrice: number; discount: number; amountPaid: number; buyerName?: string } | null;
+  loan: {
+    _id: string; status: string; borrowerName?: string; salePrice: number; downPayment: number;
+    principal: number; interestRatePercent: number; termMonths: number; emiAmount: number;
+    totalPaid: number; outstanding: number; outstandingPrincipal: number; nextDueAt?: string; overdueCount: number; saleId?: string;
+  } | null;
+  receivable: { _id: string; totalAmount: number; downPayment: number; collected: number; outstanding: number; status: string } | null;
+  leads: { id: string; status: string; buyerName?: string }[];
+}
+
+/** The payment picture for a vehicle — sale + BHPH loan + receivable + leads. */
+export function useVehiclePaymentInfo(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: [...VEHICLES_KEY, "payment-info", id],
+    queryFn: async (): Promise<VehiclePaymentInfo> => api<VehiclePaymentInfo>(`/inventory/${id}/payment-info`),
+    enabled: Boolean(id) && enabled,
+  });
+}
+
+export interface ChangePaymentMethodInput {
+  paymentMethod: "cash" | "finance" | "bhph" | "trade_in";
+  paymentStatus?: "paid" | "partial" | "pending";
+  amountPaid?: number;
+  bhph?: { interestRatePercent?: number; termMonths?: number; emiAmount?: number };
+}
+
+/** Change a sold car's payment method — cascades loan/receivable/ledger/P&L. */
+export function useChangePaymentMethod(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ChangePaymentMethodInput): Promise<void> => {
+      await api(`/inventory/${id}/change-payment-method`, { method: "POST", body: input });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: VEHICLES_KEY });
+      qc.invalidateQueries({ queryKey: ["accounting"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["loans"] });
+    },
+  });
+}
+
 export function useDeleteVehicle() {
   const qc = useQueryClient();
   return useMutation({

@@ -939,7 +939,7 @@ export default function Inventory() {
 function VehicleThumb({ image }: { image: string }) {
   // Backend-served image paths look like "/uploads/vehicles/abc.jpg"; emoji placeholders don't.
   if (image.includes("/")) {
-    return <img src={fileUrl(image)} alt="" className="h-8 w-12 object-cover rounded" />;
+    return <img src={fileUrl(image)} alt="" loading="lazy" decoding="async" className="h-8 w-12 object-cover rounded" />;
   }
   return <span className="text-2xl">{image}</span>;
 }
@@ -959,7 +959,7 @@ function VehicleCard({ vehicle: v, onOpen, onDelete, canDelete, leadTags }: {
     >
       <div className="relative aspect-[16/10] bg-gradient-to-br from-muted to-muted/40 flex items-center justify-center text-7xl overflow-hidden">
         {isImagePath ? (
-          <img src={fileUrl(v.image)} alt={v.title} className="absolute inset-0 w-full h-full object-cover" />
+          <img src={fileUrl(v.image)} alt={v.title} loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover" />
         ) : (
           <span className="drop-shadow-sm">{v.image}</span>
         )}

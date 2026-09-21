@@ -121,12 +121,25 @@ export function useUpdateLoan(loanId: string) {
   });
 }
 
-/** Close a loan (early settlement) — keeps the sale + interest income booked. */
+export interface CloseLoanInput {
+  /** 'payoff' → settle remaining principal (+fee), 'defaulted' → keep collected.
+   *  Omit for a legacy close. */
+  outcome?: "payoff" | "defaulted";
+  /** Early-closure fee booked as 'other' income (payoff only). */
+  earlyClosureFee?: number;
+  note?: string;
+}
+
+/**
+ * Close a loan. Early payoff settles the remaining principal (+ optional fee →
+ * paid_off); defaulted keeps whatever was collected and stops reminders; the
+ * legacy no-arg call just marks it closed. Never reverses the sale/income.
+ */
 export function useCloseLoan(loanId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (): Promise<Loan> => {
-      const updated = await api<ServerLoan>(`/bhph/loans/${loanId}/close`, { method: "POST" });
+    mutationFn: async (input: CloseLoanInput = {}): Promise<Loan> => {
+      const updated = await api<ServerLoan>(`/bhph/loans/${loanId}/close`, { method: "POST", body: input });
       return toClientLoan(updated);
     },
     onSuccess: () => invalidateLoanAndFinancials(qc),

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import {
-  Ban, Download, Eye, FileSignature, FileText, Loader2, PenLine, Plus, Trash2, Upload,
+  Ban, Eye, FileSignature, FileText, Loader2, PenLine, Plus, Trash2, Upload,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -89,7 +89,7 @@ export function BuyerDocumentsCard({
   };
 
   const openSigDialog = () => {
-    setSigMode(templates.length ? "template" : "upload");
+    setSigMode("template"); // default to using a template
     setTplId(""); setNewFile(null); setNewTitle(""); setSaveAsTemplate(false); setTemplateName("");
     setTplOpen(true);
   };
@@ -201,15 +201,26 @@ export function BuyerDocumentsCard({
                 </p>
               </div>
               <div className="flex items-center gap-1">
-                {doc.viewUrl && (
+                {doc.signedFileUrl && (
+                  <a
+                    href={doc.signedFileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="View signed document"
+                    className="rounded p-1.5 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </a>
+                )}
+                {doc.viewUrl && !doc.signedFileUrl && (
                   <a
                     href={doc.viewUrl}
                     target="_blank"
                     rel="noreferrer"
-                    title={doc.signedFileUrl ? "View signed document" : "View document"}
+                    title="View document"
                     className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
-                    {doc.signedFileUrl ? <Download className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    <Eye className="h-4 w-4" />
                   </a>
                 )}
                 {canEdit && doc.kind === "signable" && doc.status === "pending" && (

@@ -133,7 +133,7 @@ function MarketplaceRow({
     <tr>
       <td>
         {v.image.includes("/") ? (
-          <img src={fileUrl(v.image)} alt="" className="h-10 w-14 object-cover rounded" />
+          <img src={fileUrl(v.image)} alt="" loading="lazy" decoding="async" className="h-10 w-14 object-cover rounded" />
         ) : (
           <span className="text-2xl">{v.image}</span>
         )}

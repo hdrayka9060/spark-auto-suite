@@ -4,15 +4,18 @@ import {
   Pencil, Ban, Archive, Trash2, CheckSquare, TrendingUp, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import {
-  useArchiveLoan, useBulkMarkPaid, useCloseLoan, useCreateLoan, useDeletePayment, useLoan, useLoans,
+  useArchiveLoan, useBulkMarkPaid, useCreateLoan, useDeletePayment, useLoan, useLoans,
   useRecordPayment, useUnpayInstallment, useUpdateLoan, useUpdatePayment,
 } from "@/hooks/api/use-loans";
 import { useVehicles } from "@/hooks/api/use-vehicles";
 import { useLeads } from "@/hooks/api/use-leads";
 import { useBuyers } from "@/hooks/api/use-buyers";
+import { useReceivables, useRecordReceivablePayment } from "@/hooks/api/use-accounting";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { CloseLoanDialog } from "@/components/CloseLoanDialog";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { ApiError } from "@/lib/api";
 import { AmortizationRow, ClientLoanStatus, InstallmentState, Loan, rollupPortfolio } from "@/lib/loan-mapper";
 import { computeMissing, EmiField } from "@/lib/emi-solver";
@@ -55,6 +58,8 @@ export default function BHPH() {
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
 
   const [showEdit, setShowEdit] = useState(false);
+  const [showClose, setShowClose] = useState(false);
+  const confirm = useConfirm();
   // Schedule grid: bulk-select mode + which installment modal is open.
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -64,7 +69,6 @@ export default function BHPH() {
   const loansQuery = useLoans({ status: statusFilter });
   const detailQuery = useLoan(selectedLoanId ?? undefined);
   const recordPayment = useRecordPayment(selectedLoanId ?? "");
-  const closeLoan = useCloseLoan(selectedLoanId ?? "");
   const archiveLoan = useArchiveLoan(selectedLoanId ?? "");
   const bulkPay = useBulkMarkPaid(selectedLoanId ?? "");
   const HIST_PER_PAGE = 8;
@@ -91,20 +95,16 @@ export default function BHPH() {
     if (detail) setPayForm((f) => ({ ...f, amount: f.amount || String(detail.loan.emiAmount.toFixed(2)) }));
   }, [detail?.loan.id]);
 
-  const handleClose = async () => {
-    if (!selectedLoanId) return;
-    if (!window.confirm("Close this loan? It stops reminders but keeps the sale + interest booked.")) return;
-    try {
-      await closeLoan.mutateAsync();
-      toast({ title: "Loan closed" });
-    } catch (err) {
-      toast({ title: "Could not close", description: err instanceof ApiError ? err.message : "", variant: "destructive" });
-    }
-  };
-
+  // Close opens the app dialog (payoff / defaulted); no browser confirm.
   const handleArchive = async () => {
     if (!selectedLoanId) return;
-    if (!window.confirm("Archive this loan? This UN-SELLS the car and removes the sale + interest from all financials. This cannot be undone.")) return;
+    const ok = await confirm({
+      title: "Archive this loan?",
+      description: "This UN-SELLS the car and removes the sale + interest from all financials. This cannot be undone.",
+      confirmText: "Archive",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await archiveLoan.mutateAsync();
       toast({ title: "Loan archived", description: "Car un-sold; financials reversed." });
@@ -308,13 +308,22 @@ export default function BHPH() {
                 <button onClick={() => setShowEdit((s) => !s)} className="flex items-center justify-center gap-1 px-2 py-2 text-xs border rounded-lg hover:bg-muted">
                   <Pencil className="h-3.5 w-3.5" />{showEdit ? "Cancel" : "Edit"}
                 </button>
-                <button onClick={handleClose} disabled={closeLoan.isPending || detail.loan.rawStatus === "closed"} className="flex items-center justify-center gap-1 px-2 py-2 text-xs border rounded-lg hover:bg-muted disabled:opacity-50">
+                <button onClick={() => setShowClose(true)} disabled={detail.loan.rawStatus === "closed" || detail.loan.rawStatus === "paid_off" || detail.loan.rawStatus === "archived"} className="flex items-center justify-center gap-1 px-2 py-2 text-xs border rounded-lg hover:bg-muted disabled:opacity-50">
                   <Ban className="h-3.5 w-3.5" />Close
                 </button>
                 <button onClick={handleArchive} disabled={archiveLoan.isPending} className="flex items-center justify-center gap-1 px-2 py-2 text-xs border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50">
                   <Archive className="h-3.5 w-3.5" />Archive
                 </button>
               </div>
+
+              <CloseLoanDialog
+                open={showClose}
+                onOpenChange={setShowClose}
+                loanId={detail.loan.id}
+                borrowerName={detail.loan.borrowerName}
+                vehicleTitle={detail.loan.vehicleTitle}
+                outstandingPrincipal={detail.summary?.outstandingPrincipal ?? detail.summary?.outstanding ?? 0}
+              />
 
               {showEdit && (
                 <EditLoanForm loan={detail.loan} onDone={() => setShowEdit(false)} />
@@ -391,6 +400,93 @@ export default function BHPH() {
           onClose={() => setModalInst(null)}
         />
       )}
+
+      <ReceivablesPanel />
+    </div>
+  );
+}
+
+/**
+ * Partial / pending balances that aren't BHPH financing — the non-BHPH
+ * receivables (cash/finance/trade-in sales left partly unpaid). Surfaced here so
+ * every "money still owed" lives on one page. Record payments inline.
+ */
+function ReceivablesPanel() {
+  const { data, isLoading } = useReceivables("open");
+  const recordPay = useRecordReceivablePayment();
+  const rows = data?.data ?? [];
+  const [payId, setPayId] = useState<string | null>(null);
+  const [payAmt, setPayAmt] = useState("");
+
+  const money = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString()}`;
+
+  const submitPay = async (id: string) => {
+    const amt = parseFloat(payAmt);
+    if (!(amt > 0)) { toast({ title: "Enter a valid amount", variant: "destructive" }); return; }
+    try {
+      await recordPay.mutateAsync({ id, input: { amount: amt } });
+      toast({ title: "Payment recorded" });
+      setPayId(null); setPayAmt("");
+    } catch (err) {
+      toast({ title: "Failed", description: err instanceof ApiError ? err.message : "", variant: "destructive" });
+    }
+  };
+
+  return (
+    <div className="stat-card">
+      <div className="mb-3 flex items-center gap-2">
+        <Wallet className="h-4 w-4 text-amber-600" />
+        <h3 className="font-display font-semibold">Partial payments &amp; amounts owed</h3>
+        <span className="text-xs text-muted-foreground">(non-BHPH balances)</span>
+      </div>
+      {isLoading ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
+      ) : rows.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">No outstanding balances. 🎉</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs text-muted-foreground">
+                <th className="py-2 pr-3">Vehicle</th>
+                <th className="py-2 pr-3">Buyer</th>
+                <th className="py-2 pr-3">Method</th>
+                <th className="py-2 pr-3 text-right">Total</th>
+                <th className="py-2 pr-3 text-right">Collected</th>
+                <th className="py-2 pr-3 text-right">Outstanding</th>
+                <th className="py-2 pr-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-b last:border-0 align-middle">
+                  <td className="py-2 pr-3">{r.vehicleTitle ?? "—"}</td>
+                  <td className="py-2 pr-3">{r.buyerName ?? "—"}</td>
+                  <td className="py-2 pr-3 capitalize">{(r.paymentMethod ?? "").replace("_", " ") || "—"}</td>
+                  <td className="py-2 pr-3 text-right">{money(r.totalAmount)}</td>
+                  <td className="py-2 pr-3 text-right">{money(r.collected)}</td>
+                  <td className="py-2 pr-3 text-right font-medium text-amber-700 dark:text-amber-400">{money(r.outstanding)}</td>
+                  <td className="py-2 pr-3 text-right">
+                    {payId === r.id ? (
+                      <span className="inline-flex items-center gap-1">
+                        <input
+                          type="number" min={0} autoFocus value={payAmt} onChange={(e) => setPayAmt(e.target.value)}
+                          placeholder={String(r.outstanding)}
+                          className="w-24 rounded border bg-background px-2 py-1 text-xs"
+                        />
+                        <button onClick={() => submitPay(r.id)} disabled={recordPay.isPending} className="rounded bg-emerald-600 px-2 py-1 text-xs text-white disabled:opacity-60">Save</button>
+                        <button onClick={() => { setPayId(null); setPayAmt(""); }} className="rounded border px-2 py-1 text-xs">✕</button>
+                      </span>
+                    ) : (
+                      <button onClick={() => { setPayId(r.id); setPayAmt(""); }} className="rounded border px-2 py-1 text-xs hover:bg-muted">Record payment</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -435,6 +531,7 @@ function PaymentHistory({ loanId, borrowerName, payments, page, perPage, onPage,
 }) {
   const del = useDeletePayment(loanId);
   const upd = useUpdatePayment(loanId);
+  const confirm = useConfirm();
   const [editId, setEditId] = useState<string | null>(null);
   const [editAmt, setEditAmt] = useState("");
 
@@ -448,7 +545,8 @@ function PaymentHistory({ loanId, borrowerName, payments, page, perPage, onPage,
     catch (err) { toast({ title: "Update failed", description: err instanceof ApiError ? err.message : "", variant: "destructive" }); }
   };
   const remove = async (id: string) => {
-    if (!window.confirm("Delete this payment? This adjusts the loan + accounting.")) return;
+    const ok = await confirm({ title: "Delete this payment?", description: "This adjusts the loan balance + accounting.", confirmText: "Delete", destructive: true });
+    if (!ok) return;
     try { await del.mutateAsync(id); toast({ title: "Payment deleted" }); }
     catch (err) { toast({ title: "Delete failed", description: err instanceof ApiError ? err.message : "", variant: "destructive" }); }
   };
@@ -509,6 +607,7 @@ function InstallmentModal({ loanId, row, editable, onClose }: {
   const rec = useRecordPayment(loanId);
   const del = useDeletePayment(loanId);
   const unpay = useUnpayInstallment(loanId);
+  const confirm = useConfirm();
   const [amt, setAmt] = useState("");
 
   if (!row) return null;
@@ -520,7 +619,8 @@ function InstallmentModal({ loanId, row, editable, onClose }: {
     catch (err) { toast({ title: "Failed", description: err instanceof ApiError ? err.message : "", variant: "destructive" }); }
   };
   const markUnpaid = async () => {
-    if (!window.confirm(`Mark installment #${row.installmentNo} unpaid? This removes its payment(s).`)) return;
+    const ok = await confirm({ title: `Mark installment #${row.installmentNo} unpaid?`, description: "This removes its payment(s) and adjusts the loan + accounting.", confirmText: "Mark unpaid", destructive: true });
+    if (!ok) return;
     try { await unpay.mutateAsync(row.installmentNo); toast({ title: "Installment marked unpaid" }); onClose(); }
     catch (err) { toast({ title: "Failed", description: err instanceof ApiError ? err.message : "", variant: "destructive" }); }
   };

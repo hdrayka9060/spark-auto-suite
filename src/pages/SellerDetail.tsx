@@ -550,7 +550,7 @@ export default function SellerDetail() {
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-muted to-muted/40 flex items-center justify-center overflow-hidden text-lg">
                             {v.photos[0] ? (
-                              <img src={fileUrl(v.photos[0])} alt={v.title} className="w-full h-full object-cover" />
+                              <img src={fileUrl(v.photos[0])} alt={v.title} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                             ) : (
                               <CarIcon className="h-4 w-4 text-muted-foreground" />
                             )}

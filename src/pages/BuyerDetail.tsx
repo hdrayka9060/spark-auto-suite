@@ -1101,6 +1101,6 @@ function Kpi({ icon: Icon, color, value, label }: { icon: typeof Eye; color: str
 }
 
 function VehicleThumb({ image }: { image: string }) {
-  if (image.includes("/")) return <img src={fileUrl(image)} alt="" className="h-10 w-14 object-cover rounded" />;
+  if (image.includes("/")) return <img src={fileUrl(image)} alt="" loading="lazy" decoding="async" className="h-10 w-14 object-cover rounded" />;
   return <span className="text-2xl">{image}</span>;
 }

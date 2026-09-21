@@ -240,7 +240,7 @@ function DealerWebsiteRow({
     <tr>
       <td>
         {v.image.includes("/") ? (
-          <img src={fileUrl(v.image)} alt="" className="h-10 w-14 object-cover rounded" />
+          <img src={fileUrl(v.image)} alt="" loading="lazy" decoding="async" className="h-10 w-14 object-cover rounded" />
         ) : (
           <span className="text-2xl">{v.image}</span>
         )}
@@ -323,7 +323,7 @@ function PreviewCard({ vehicle: v }: { vehicle: Vehicle }) {
     <div className="border rounded-xl overflow-hidden hover:shadow-md transition-shadow">
       <div className="bg-muted h-32 flex items-center justify-center text-5xl relative overflow-hidden">
         {v.image.includes("/") ? (
-          <img src={fileUrl(v.image)} alt={v.title} className="absolute inset-0 w-full h-full object-cover" />
+          <img src={fileUrl(v.image)} alt={v.title} loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover" />
         ) : (
           v.image
         )}

@@ -21,6 +21,7 @@ import {
 } from "@/lib/accounting-mapper";
 import { toast } from "@/hooks/use-toast";
 import { useCan } from "@/components/Can";
+import { ChangePaymentMethodDialog } from "@/components/ChangePaymentMethodDialog";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -286,6 +287,7 @@ export default function Accounting() {
     paymentStatus: "Paid" as ClientPaymentStatus, notes: "",
   });
   const [pendingDeleteSale, setPendingDeleteSale] = useState<SaleLedgerEntry | null>(null);
+  const [showChangeMethodAcc, setShowChangeMethodAcc] = useState(false);
   const updateSale = useUpdateSale(editingSale?.id ?? "");
   const deleteSale = useDeleteSale();
 
@@ -996,9 +998,13 @@ export default function Accounting() {
             <input value={editSaleForm.costPrice} onChange={(e) => setEditSaleForm({ ...editSaleForm, costPrice: e.target.value })} placeholder="Cost price ($)" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
             <input value={editSaleForm.discount} onChange={(e) => setEditSaleForm({ ...editSaleForm, discount: e.target.value })} placeholder="Discount ($)" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
             <input value={editSaleForm.amountPaid} onChange={(e) => setEditSaleForm({ ...editSaleForm, amountPaid: e.target.value })} placeholder="Amount paid ($)" type="number" className="border rounded-lg px-3 py-2 text-sm bg-background" />
-            <select value={editSaleForm.paymentMethod} onChange={(e) => setEditSaleForm({ ...editSaleForm, paymentMethod: e.target.value as typeof editSaleForm.paymentMethod })} className="border rounded-lg px-3 py-2 text-sm bg-background">
-              {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
+            <div className="flex items-center gap-2 border rounded-lg px-3 py-2 text-sm bg-muted/40">
+              <span className="text-xs text-muted-foreground">Method:</span>
+              <span className="flex-1 capitalize">{editSaleForm.paymentMethod.replace("_", " ")}</span>
+              {editingSale?.vehicleId && (
+                <button type="button" onClick={() => setShowChangeMethodAcc(true)} className="text-xs text-primary hover:underline">Change</button>
+              )}
+            </div>
             <select value={editSaleForm.paymentStatus} onChange={(e) => setEditSaleForm({ ...editSaleForm, paymentStatus: e.target.value as ClientPaymentStatus })} className="border rounded-lg px-3 py-2 text-sm bg-background">
               {ALL_PAYMENT_STATUSES.map((s) => <option key={s}>{s}</option>)}
             </select>
@@ -1017,6 +1023,23 @@ export default function Accounting() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Change payment method (cascades loan/receivable/ledger) */}
+      {editingSale?.vehicleId && (
+        <ChangePaymentMethodDialog
+          open={showChangeMethodAcc}
+          onOpenChange={setShowChangeMethodAcc}
+          vehicleId={editingSale.vehicleId}
+          net={Math.max(0, (parseFloat(editSaleForm.salePrice) || 0) - (parseFloat(editSaleForm.discount) || 0))}
+          current={{
+            paymentMethod: editSaleForm.paymentMethod,
+            paymentStatus: editSaleForm.paymentStatus.toLowerCase(),
+            amountPaid: parseFloat(editSaleForm.amountPaid) || 0,
+          }}
+          hasBuyer={!!editSaleForm.linkedBuyerId}
+          onChanged={() => setEditingSale(null)}
+        />
+      )}
 
       {/* Delete sale confirmation */}
       <AlertDialog open={Boolean(pendingDeleteSale)} onOpenChange={(o) => !o && setPendingDeleteSale(null)}>

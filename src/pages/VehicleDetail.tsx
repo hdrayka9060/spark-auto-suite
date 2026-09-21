@@ -10,7 +10,9 @@ import {
   useDeleteVehicle, useDeleteVehicleImage, useReorderVehicleImages, useUpdateVehicle, useUploadVehicleImages,
   useVehicle, useVehicleActivity, useMarkVehicleSold, useSoldBuyer,
   useAddVehicleSpend, useUpdateVehicleSpend, useDeleteVehicleSpend, MarkSoldInput,
+  useMarkVehicleUnsold, useVehiclePaymentInfo,
 } from "@/hooks/api/use-vehicles";
+import { ChangePaymentMethodDialog } from "@/components/ChangePaymentMethodDialog";
 import { useBuyers } from "@/hooks/api/use-buyers";
 import { useAssignLeadBuyer } from "@/hooks/api/use-leads";
 import {
@@ -66,10 +68,13 @@ export default function VehicleDetail() {
   const updateSpendMut = useUpdateVehicleSpend(id);
   const deleteSpend = useDeleteVehicleSpend(id);
   const markSold = useMarkVehicleSold(id);
+  const markUnsold = useMarkVehicleUnsold(id);
   // Buyers for the optional "link a CRM buyer" picker in the Mark/Assign dialogs.
   const buyersQuery = useBuyers();
   // Who bought this vehicle (from its closed lead) — only when sold.
   const soldBuyerQuery = useSoldBuyer(id, vehicleQuery.data?.status === "Sold");
+  // BHPH loan / receivable / partial details for a sold car (+ linked leads).
+  const paymentInfoQuery = useVehiclePaymentInfo(id, vehicleQuery.data?.status === "Sold");
   const assignBuyer = useAssignLeadBuyer(soldBuyerQuery.data?.leadId ?? "");
   const canEditInventory = useCan("Inventory", "edit");
   const canDeleteInventory = useCan("Inventory", "delete");
@@ -94,6 +99,7 @@ export default function VehicleDetail() {
     date: "",
   });
   const [imageIdx, setImageIdx] = useState(0);
+  const [showChangeMethod, setShowChangeMethod] = useState(false);
   // Index of the thumbnail currently being dragged (for photo reordering).
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
@@ -446,6 +452,31 @@ export default function VehicleDetail() {
     }
   };
 
+  const handleMarkUnsold = async () => {
+    const pi = paymentInfoQuery.data;
+    const parts = ["The sale will be reversed and the car returned to the lot."];
+    if (pi?.loan) parts.push("Its BHPH loan will be archived and interest income backed out.");
+    if (pi?.receivable) parts.push("Its open receivable will be archived.");
+    const linked = pi?.leads ?? [];
+    if (linked.length) {
+      const names = linked.map((l) => l.buyerName || `lead (${l.status})`).slice(0, 4).join(", ");
+      parts.push(`Linked lead(s): ${names}${linked.length > 4 ? "…" : ""} — these will be re-archived.`);
+    }
+    const ok = await confirm({
+      title: `Mark ${vehicle.title} as unsold?`,
+      description: parts.join(" ") + " This cannot be undone.",
+      confirmText: "Mark unsold",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await markUnsold.mutateAsync();
+      toast({ title: "Marked unsold", description: "Sale reversed; car back on the lot." });
+    } catch (err) {
+      toast({ title: "Couldn't mark unsold", description: err instanceof ApiError ? err.message : "", variant: "destructive" });
+    }
+  };
+
   const handleDeletePhoto = async (photoPath: string) => {
     // Don't try to delete the emoji placeholder.
     if (!photoPath.includes("/")) return;
@@ -749,6 +780,22 @@ export default function VehicleDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* Change payment method (cascades loan/receivable/ledger) */}
+      {paymentInfoQuery.data?.sale && (
+        <ChangePaymentMethodDialog
+          open={showChangeMethod}
+          onOpenChange={setShowChangeMethod}
+          vehicleId={id}
+          net={Math.max(0, (paymentInfoQuery.data.sale.salePrice || 0) - (paymentInfoQuery.data.sale.discount || 0))}
+          current={{
+            paymentMethod: paymentInfoQuery.data.sale.paymentMethod,
+            paymentStatus: paymentInfoQuery.data.sale.paymentStatus,
+            amountPaid: paymentInfoQuery.data.sale.amountPaid,
+          }}
+          hasBuyer={!!soldBuyerQuery.data?.buyerId}
+        />
+      )}
+
       {/* Header card */}
       <div className="grid lg:grid-cols-5 gap-6">
         {/* Gallery */}
@@ -842,7 +889,7 @@ export default function VehicleDetail() {
                           i === imageIdx ? "border-primary ring-2 ring-primary/20 bg-muted" : "hover:bg-muted"
                         }`}
                       >
-                        {isPath ? <img src={fileUrl(g)} alt="" className="w-full h-full object-cover pointer-events-none" /> : g}
+                        {isPath ? <img src={fileUrl(g)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none" /> : g}
                       </button>
                       {i === 0 && isPath && (
                         <span className="absolute bottom-1 left-1 bg-card/90 border rounded px-1 text-[9px] font-medium leading-tight pointer-events-none">
@@ -1017,6 +1064,49 @@ export default function VehicleDetail() {
               </div>
             )}
           </div>
+
+          {/* Financing / payment — BHPH loan or partial receivable + actions */}
+          {!editing && vehicle.status === "Sold" && canViewFinancials && (
+            <div className="border-t pt-4">
+              <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Payment</div>
+              {(() => {
+                const pi = paymentInfoQuery.data;
+                const sale = pi?.sale;
+                const loan = pi?.loan;
+                const rec = pi?.receivable;
+                const m = (n?: number) => `$${(Math.round((n || 0) * 100) / 100).toLocaleString()}`;
+                return (
+                  <div className="space-y-1.5">
+                    <PriceRow
+                      label="Method"
+                      value={<span className="capitalize">{(sale?.paymentMethod ?? "—").replace("_", " ")}{sale ? ` · ${sale.paymentStatus}` : ""}</span>}
+                    />
+                    {loan && (
+                      <>
+                        <PriceRow label="BHPH" value={<span className="capitalize">{loan.status.replace("_", " ")} · financed {m(loan.principal)}</span>} />
+                        <PriceRow label="Down / EMI" value={`${m(loan.downPayment)} · ${m(loan.emiAmount)}/mo`} />
+                        <PriceRow label="Paid / Remaining" value={`${m(loan.totalPaid)} · ${m(loan.outstanding)}`} />
+                        {loan.nextDueAt && <PriceRow label="Next due" value={new Date(loan.nextDueAt).toLocaleDateString()} />}
+                        <button onClick={() => navigate("/bhph")} className="text-xs text-primary hover:underline">Open in BHPH →</button>
+                      </>
+                    )}
+                    {rec && !loan && (
+                      <>
+                        <PriceRow label="Collected / Outstanding" value={`${m(rec.collected)} · ${m(rec.outstanding)}`} />
+                        <button onClick={() => navigate("/bhph")} className="text-xs text-primary hover:underline">Track in BHPH →</button>
+                      </>
+                    )}
+                    {canEditInventory && (
+                      <div className="flex flex-wrap gap-2 pt-2">
+                        <button onClick={() => setShowChangeMethod(true)} className="text-xs border rounded-lg px-2 py-1 hover:bg-muted">Change payment method</button>
+                        <button onClick={handleMarkUnsold} disabled={markUnsold.isPending} className="text-xs border border-red-200 text-red-600 rounded-lg px-2 py-1 hover:bg-red-50 disabled:opacity-50">Mark as Unsold</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {editing && editForm ? (
             <div className="border-t pt-4 grid grid-cols-2 gap-3">

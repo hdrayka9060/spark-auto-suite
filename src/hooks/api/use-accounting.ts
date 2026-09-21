@@ -42,6 +42,68 @@ export function useSales(filters: SalesListFilters = {}) {
   });
 }
 
+/* ------------------------------- Receivables ------------------------------ */
+
+export interface Receivable {
+  id: string;
+  saleId: string;
+  vehicleId?: string;
+  vehicleTitle?: string;
+  buyerName?: string;
+  paymentMethod?: string;
+  totalAmount: number;
+  downPayment: number;
+  collected: number;
+  outstanding: number;
+  status: "open" | "settled" | "archived";
+  createdAt?: string;
+}
+
+const toReceivable = (r: any): Receivable => ({
+  id: String(r._id ?? r.id),
+  saleId: String(r.saleId ?? ""),
+  vehicleId: r.vehicleId,
+  vehicleTitle: r.vehicleTitle,
+  buyerName: r.buyerName,
+  paymentMethod: r.paymentMethod,
+  totalAmount: Number(r.totalAmount) || 0,
+  downPayment: Number(r.downPayment) || 0,
+  collected: Number(r.collected) || 0,
+  outstanding: Number(r.outstanding) || 0,
+  status: r.status,
+  createdAt: r.createdAt,
+});
+
+/** Partial/pending balances (non-BHPH receivables). Surfaced on the BHPH page. */
+export function useReceivables(status: "open" | "settled" | "All" = "open") {
+  return useQuery({
+    queryKey: [...ACCOUNTING_KEY, "receivables", { status }],
+    queryFn: async () => {
+      const res = await api<PaginatedServerResponse<any>>("/receivables", {
+        query: { status: status === "All" ? undefined : status, limit: 100 },
+      });
+      return { ...res, data: res.data.map(toReceivable) };
+    },
+  });
+}
+
+export interface RecordReceivablePaymentInput { amount: number; method?: string; date?: string; notes?: string; }
+
+/** Record a payment against a receivable (bumps the linked sale's amountPaid). */
+export function useRecordReceivablePayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: string; input: RecordReceivablePaymentInput }): Promise<void> => {
+      await api(`/receivables/${id}/payment`, { method: "POST", body: input });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ACCOUNTING_KEY });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["vehicles"] });
+    },
+  });
+}
+
 export interface ExpensesListFilters {
   category?: ClientExpenseCategory | "All";
   startDate?: string;
