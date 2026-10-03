@@ -296,7 +296,9 @@ export function SignatureDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !saving && onOpenChange(o)}>
-      <DialogContent className="max-w-3xl">
+      {/* Don't auto-focus the signer-name field on open — on mobile that pops the
+          keyboard over the document. The signer name is prefilled; tap to edit. */}
+      <DialogContent className="max-w-3xl" onOpenAutoFocus={(e) => e.preventDefault()}>
         <div ref={rootRef} className="flex h-full flex-col bg-background">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
