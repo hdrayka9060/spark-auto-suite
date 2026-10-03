@@ -1,5 +1,7 @@
+import "@/lib/pdf-polyfill"; // must run before pdf.js (older iOS/Safari compat)
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
+import PdfWorker from "@/lib/pdf.worker?worker";
 import {
   Check, Loader2, Maximize, Minimize, PenLine, Plus, RotateCcw, Trash2, ZoomIn, ZoomOut,
 } from "lucide-react";
@@ -9,10 +11,10 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { BuyerDoc } from "@/lib/document-mapper";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
+// Run pdf.js in a polyfilled worker so the getOrInsertComputed shim is present
+// in the worker scope too (pdf.js uses it on both threads). workerPort takes
+// precedence over workerSrc.
+pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
 
 /** A placed signature: normalized CENTER coords (0..1) + width on a page. */
 export interface Placement {
@@ -172,13 +174,19 @@ export function SignatureDialog({
     if (last) redrawDraw(last.page);
   };
 
-  const commitDrawing = () => {
+  /**
+   * Rasterize the current ink (strokesRef) into a placed-signature object —
+   * PURE: it reads refs/state and returns the object (or null) without touching
+   * React state, so callers like handleSave can use the result synchronously
+   * instead of waiting on an async setObjects.
+   */
+  const buildObjectFromStrokes = (): SigObject | null => {
     const strokes = strokesRef.current;
-    if (!strokes.length) { setMode("move"); return; }
+    if (!strokes.length) return null;
     const page = strokes[0].page;
     const pg = pages.find((p) => p.page === page);
     const pageStrokes = strokes.filter((s) => s.page === page && s.points.length);
-    if (!pg || !pageStrokes.length) { strokesRef.current = []; setStrokeCount(0); setMode("move"); return; }
+    if (!pg || !pageStrokes.length) return null;
     let minX = 1, minY = 1, maxX = 0, maxY = 0;
     for (const s of pageStrokes) for (const p of s.points) { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); }
     minX = clamp(minX - 0.01, 0, 1); minY = clamp(minY - 0.01, 0, 1); maxX = clamp(maxX + 0.01, 0, 1); maxY = clamp(maxY + 0.01, 0, 1);
@@ -193,8 +201,13 @@ export function SignatureDialog({
       if (s.points.length === 1) ctx.lineTo((s.points[0].x - minX) * pg.w + 0.1, (s.points[0].y - minY) * pg.h + 0.1);
       ctx.stroke();
     }
-    setObjects((prev) => [...prev, { id: uid(), page, x: (minX + maxX) / 2, y: (minY + maxY) / 2, width: bw, signatureImage: off.toDataURL("image/png") }]);
-    // Clear the transient ink + exit draw mode.
+    return { id: uid(), page, x: (minX + maxX) / 2, y: (minY + maxY) / 2, width: bw, signatureImage: off.toDataURL("image/png") };
+  };
+
+  /** Commit the current ink into a placed object, clear the ink, exit draw mode. */
+  const commitDrawing = () => {
+    const obj = buildObjectFromStrokes();
+    if (obj) setObjects((prev) => [...prev, obj]);
     strokesRef.current = []; setStrokeCount(0);
     for (const p of pages) redrawDraw(p.page);
     setMode("move");
@@ -259,8 +272,18 @@ export function SignatureDialog({
   const handleSave = async () => {
     if (!doc) return;
     if (!signerName.trim()) { toast({ title: "Signer name required", variant: "destructive" }); return; }
-    if (mode === "draw" && strokesRef.current.length) commitDrawing();
-    const placements = objects.map((o) => ({ page: o.page, x: o.x, y: o.y, width: o.width, signatureImage: o.signatureImage }));
+    // If the signer drew but didn't tap "Done", commit that ink now so it isn't
+    // lost. Build it SYNCHRONOUSLY (setObjects is async) and include it in this
+    // save; also persist it to state so a failed save leaves it placed.
+    const pending = mode === "draw" ? buildObjectFromStrokes() : null;
+    if (pending) {
+      setObjects((prev) => [...prev, pending]);
+      strokesRef.current = []; setStrokeCount(0);
+      for (const p of pages) redrawDraw(p.page);
+      setMode("move");
+    }
+    const allObjects = pending ? [...objects, pending] : objects;
+    const placements = allObjects.map((o) => ({ page: o.page, x: o.x, y: o.y, width: o.width, signatureImage: o.signatureImage }));
     if (!placements.length) { toast({ title: "Add a signature first", description: "Tap “Add signature”, draw, then Done.", variant: "destructive" }); return; }
     setSaving(true);
     try {
